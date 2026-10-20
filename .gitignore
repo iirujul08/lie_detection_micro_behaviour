@@ -78,3 +78,6 @@ tests/*.pyc
 # --- Logs ---
 *.log
 logs/
+
+# --- Scratch ---
+scratch/
