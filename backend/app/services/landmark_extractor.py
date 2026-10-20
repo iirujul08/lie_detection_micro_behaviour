@@ -4,7 +4,11 @@ from typing import Dict, Any, List
 
 class LandmarkFeatureExtractor:
     """
-    Extracts FACS Action Units and micro-facial movements from 468 MediaPipe FaceMesh landmarks.
+    Extracts FACS Action Units and micro-facial movements from MediaPipe FaceMesh landmarks.
+    Features:
+    - Head roll compensation to prevent head tilts from triggering false asymmetry/contempt
+    - Dual-iris gaze tracking (AU61/62 saccadic gaze)
+    - Normalized Action Unit metrics for baseline-relative scoring
     """
 
     @staticmethod
@@ -14,78 +18,97 @@ class LandmarkFeatureExtractor:
     def extract_features(self, landmarks: List[tuple], image_shape: tuple) -> Dict[str, Any]:
         h, w = image_shape
         lm = landmarks
-        
-        # Inter-pupillary or eye-corner distance for scale normalization
-        # Left eye outer corner: 33, Right eye outer corner: 263
+
+        # 1. Inter-ocular distance for scale normalization
+        # Left eye outer (33), Right eye outer (263)
         eye_width = max(1.0, self._dist(lm[33], lm[263]))
 
-        # 1. Eye Aspect Ratio (EAR) for both eyes (AU45 blink)
-        # Left eye: top (159), bottom (145), inner (133), outer (33)
-        left_ear = self._dist(lm[159], lm[145]) / max(1.0, self._dist(lm[33], lm[133]))
-        # Right eye: top (386), bottom (374), inner (362), outer (263)
-        right_ear = self._dist(lm[386], lm[374]) / max(1.0, self._dist(lm[263], lm[362]))
+        # 2. Estimate head roll angle (in radians)
+        dx = lm[263][0] - lm[33][0]
+        dy = lm[263][1] - lm[33][1]
+        roll_rad = math.atan2(dy, dx)
+        cos_r = math.cos(-roll_rad)
+        sin_r = math.sin(-roll_rad)
+
+        def rotate_pt(pt):
+            # Rotate point to horizontal eye axis
+            cx, cy = lm[1][0], lm[1][1] # nose tip as center
+            rx = pt[0] - cx
+            ry = pt[1] - cy
+            nx = (rx * cos_r - ry * sin_r) + cx
+            ny = (rx * sin_r + ry * cos_r) + cy
+            return (nx, ny)
+
+        # 3. Eye Aspect Ratio (EAR) for AU45 blink detection
+        left_eye_h = self._dist(lm[159], lm[145])
+        left_eye_w = max(1.0, self._dist(lm[33], lm[133]))
+        left_ear = left_eye_h / left_eye_w
+
+        right_eye_h = self._dist(lm[386], lm[374])
+        right_eye_w = max(1.0, self._dist(lm[263], lm[362]))
+        right_ear = right_eye_h / right_eye_w
+
         avg_ear = (left_ear + right_ear) / 2.0
-        is_blinking = avg_ear < 0.18
+        is_blinking = avg_ear < 0.17
 
-        # 2. Gaze Direction & Gaze Aversion (Iris landmarks: Left 468, Right 473)
-        gaze_aversion = False
-        gaze_ratio = 0.5
+        # 4. Dual-Iris Gaze Ratio (Iris: Left 468, Right 473)
+        gaze_ratio = 0.50
         if len(lm) >= 474:
-            left_iris = lm[468]
-            eye_left_inner = lm[133]
-            eye_left_outer = lm[33]
-            eye_span = max(1.0, self._dist(eye_left_outer, eye_left_inner))
-            iris_to_outer = self._dist(left_iris, eye_left_outer)
-            gaze_ratio = iris_to_outer / eye_span
-            # If eyes shifted significantly left (<0.32) or right (>0.68)
-            if gaze_ratio < 0.32 or gaze_ratio > 0.68:
-                gaze_aversion = True
+            # Left eye iris ratio
+            iris_l = lm[468]
+            eye_l_out = lm[33]
+            eye_l_in = lm[133]
+            left_ratio = self._dist(iris_l, eye_l_out) / max(1.0, self._dist(eye_l_out, eye_l_in))
 
-        # 3. AU4: Brow Lowerer / Furrow (Distance between inner brows 55 and 285)
-        inner_brow_dist = self._dist(lm[55], lm[285]) / eye_width
-        # Normal relaxed inner brow ratio is ~0.35 - 0.42. Below 0.30 indicates furrow
-        brow_furrow_intensity = max(0.0, min(1.0, (0.35 - inner_brow_dist) / 0.12))
+            # Right eye iris ratio
+            iris_r = lm[473]
+            eye_r_in = lm[362]
+            eye_r_out = lm[263]
+            right_ratio = self._dist(iris_r, eye_r_in) / max(1.0, self._dist(eye_r_in, eye_r_out))
 
-        # 4. AU1 + AU2: Eyebrow Raise (Distance from brow to eye center)
-        left_brow_raise = self._dist(lm[70], lm[159]) / eye_width
-        right_brow_raise = self._dist(lm[300], lm[386]) / eye_width
-        avg_brow_raise = (left_brow_raise + right_brow_raise) / 2.0
-        brow_raise_intensity = max(0.0, min(1.0, (avg_brow_raise - 0.22) / 0.10))
+            gaze_ratio = (left_ratio + right_ratio) / 2.0
 
-        # 5. AU12 vs AU14: Lip Corner Puller vs Asymmetry (Dimpler / Contempt)
-        # Mouth left (61), right (291), upper (13), lower (14)
-        mouth_width = self._dist(lm[61], lm[291]) / eye_width
-        mouth_corner_height_diff = abs(lm[61][1] - lm[291][1]) / eye_width
-        asymmetry_intensity = max(0.0, min(1.0, mouth_corner_height_diff / 0.08))
+        # 5. AU4: Inner Brow Distance (Brow Lowerer & Furrow)
+        # Distance between inner brow corners (55, 285) normalized by eye_width
+        raw_inner_brow = self._dist(lm[55], lm[285]) / eye_width
 
-        # 6. AU15: Lip Corner Depressor (Downturned mouth)
-        # Compare mouth corners Y to lower lip center Y
-        mouth_center_y = (lm[13][1] + lm[14][1]) / 2.0
-        left_depressed = lm[61][1] > mouth_center_y + (0.015 * h)
-        right_depressed = lm[291][1] > mouth_center_y + (0.015 * h)
-        lip_depressor_intensity = 1.0 if (left_depressed and right_depressed) else (0.5 if (left_depressed or right_depressed) else 0.0)
+        # 6. AU1+2: Brow Raise (Distance from brow to eye center)
+        # Left brow (70) to eye (159), Right brow (300) to eye (386)
+        raw_brow_dist = ((self._dist(lm[70], lm[159]) + self._dist(lm[300], lm[386])) / 2.0) / eye_width
 
-        # 7. AU24: Lip Press / Tightener (Distance between upper lip 13 and lower lip 14)
-        lip_aperture = self._dist(lm[13], lm[14]) / eye_width
-        lip_press_intensity = max(0.0, min(1.0, (0.07 - lip_aperture) / 0.05))
+        # 7. AU24: Lip Aperture (Distance between inner upper lip 13 and lower lip 14)
+        raw_lip_aperture = self._dist(lm[13], lm[14]) / eye_width
 
-        # 8. AU9: Nose Wrinkle (Disgust trigger)
-        # Distance between nose bridge (168) and nose tip (1)
-        nose_compress = self._dist(lm[168], lm[1]) / eye_width
-        nose_wrinkle_intensity = max(0.0, min(1.0, (0.28 - nose_compress) / 0.08))
+        # 8. AU12: Mouth Width (Smile / Zygomatic contraction)
+        raw_mouth_width = self._dist(lm[61], lm[291]) / eye_width
+
+        # 9. AU14: Roll-Compensated Mouth Corner Asymmetry (Unilateral Dimpler / Contempt)
+        rot_mouth_l = rotate_pt(lm[61])
+        rot_mouth_r = rotate_pt(lm[291])
+        mouth_vert_diff = abs(rot_mouth_l[1] - rot_mouth_r[1]) / eye_width
+
+        # 10. AU15: Lip Corner Depressor (Downturned mouth)
+        rot_center_lip = rotate_pt(lm[14])
+        left_drop = (rot_mouth_l[1] - rot_center_lip[1]) / eye_width
+        right_drop = (rot_mouth_r[1] - rot_center_lip[1]) / eye_width
+        avg_lip_drop = max(0.0, (left_drop + right_drop) / 2.0)
+
+        # 11. AU9: Nose Wrinkle (Disgust compression)
+        nose_len = self._dist(lm[168], lm[1]) / eye_width
 
         return {
-            "eye_aspect_ratio": round(avg_ear, 3),
+            "eye_aspect_ratio": round(float(avg_ear), 3),
             "is_blinking": is_blinking,
-            "gaze_aversion": gaze_aversion,
-            "gaze_ratio": round(gaze_ratio, 2),
-            "brow_furrow": round(brow_furrow_intensity, 2),
-            "brow_raise": round(brow_raise_intensity, 2),
-            "mouth_asymmetry": round(asymmetry_intensity, 2),
-            "lip_depressor": round(lip_depressor_intensity, 2),
-            "lip_press": round(lip_press_intensity, 2),
-            "nose_wrinkle": round(nose_wrinkle_intensity, 2),
-            "mouth_width": round(mouth_width, 2)
+            "gaze_ratio": round(float(gaze_ratio), 3),
+            "raw_inner_brow": round(float(raw_inner_brow), 3),
+            "raw_brow_dist": round(float(raw_brow_dist), 3),
+            "raw_lip_aperture": round(float(raw_lip_aperture), 3),
+            "raw_mouth_width": round(float(raw_mouth_width), 3),
+            "mouth_asymmetry": round(float(mouth_vert_diff), 3),
+            "lip_depressor": round(float(avg_lip_drop), 3),
+            "nose_compress": round(float(nose_len), 3),
+            "eye_width": round(float(eye_width), 1),
+            "roll_deg": round(float(math.degrees(roll_rad)), 1)
         }
 
 landmark_extractor = LandmarkFeatureExtractor()

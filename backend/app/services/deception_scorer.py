@@ -79,56 +79,58 @@ class DeceptionScorer:
 
     def predict_emotions(self, face_bgr: np.ndarray, au_features: Dict[str, Any]) -> Dict[str, float]:
         """
-        Classifies emotions using the CNN if trained, or computes heuristic FACS distribution.
-        Always returns standardized 8-class spectrum for UI consistency.
+        Classifies emotions using robust Ekman FACS Action Unit rules as ground truth.
+        Eliminates low-accuracy CNN hallucinations while providing real-time responsive emotion decomposition.
         """
-        if not self.model_trained:
-            self._load_cnn_model_if_available()
+        # 1. AU12: Zygomatic smile (mouth widening relative to resting)
+        mouth_w = au_features.get("raw_mouth_width", 0.45)
+        mouth_asym = au_features.get("mouth_asymmetry", 0.0)
+        is_smiling = mouth_w > 0.48 and mouth_asym < 0.12
+        happy = min(95.0, max(4.0, (mouth_w - 0.45) * 260.0)) if is_smiling else 4.0
 
-        if self.model_trained and self.model is not None and face_bgr is not None and face_bgr.size > 0:
-            try:
-                rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-                tensor = self.transform(rgb).unsqueeze(0).to(self.device)
-                with torch.no_grad():
-                    logits = self.model(tensor)
-                    probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
-                
-                raw_preds = {cls.lower(): round(float(prob) * 100.0, 1) for cls, prob in zip(self.trained_classes, probs)}
-                
-                # Standardize to 8 emotional dimensions
-                return {
-                    "happy": raw_preds.get("happy", 0.0),
-                    "sad": raw_preds.get("sad", 0.0),
-                    "angry": raw_preds.get("angry", 0.0),
-                    "fear": raw_preds.get("fear", 0.0),
-                    "surprise": raw_preds.get("surprise", 0.0),
-                    "disgust": raw_preds.get("disgust", 0.0),
-                    "contempt": raw_preds.get("contempt", round(au_features.get("mouth_asymmetry", 0.0) * 45.0, 1)),
-                    "neutral": raw_preds.get("neutral", 0.0)
-                }
-            except Exception as e:
-                print(f"[TruthLens] CNN inference error: {e}. Using heuristic fallback.")
-            except Exception as e:
-                print(f"[TruthLens] CNN inference error: {e}. Using heuristic fallback.")
+        # 2. AU14: Contempt / Dimpler (unilateral asymmetry)
+        contempt = min(90.0, max(3.0, (mouth_asym - 0.09) * 350.0)) if mouth_asym > 0.09 else 3.0
 
-        # Heuristic FACS Emotion Estimation
-        # Derives emotion probabilities based on Action Units
-        happy = max(5.0, au_features.get("mouth_width", 0.0) * 20.0 * (1.0 - au_features.get("mouth_asymmetry", 0.0)))
-        sad = max(3.0, au_features.get("lip_depressor", 0.0) * 55.0)
-        angry = max(2.0, au_features.get("brow_furrow", 0.0) * 65.0)
-        fear = max(2.0, (au_features.get("brow_raise", 0.0) * 40.0) + (au_features.get("lip_press", 0.0) * 25.0))
-        surprise = max(4.0, au_features.get("brow_raise", 0.0) * 60.0 * (1.0 - au_features.get("brow_furrow", 0.0)))
-        disgust = max(2.0, au_features.get("nose_wrinkle", 0.0) * 60.0)
-        contempt = max(2.0, au_features.get("mouth_asymmetry", 0.0) * 60.0)
+        # 3. AU4: Brow Lowerer / Anger & Cognitive Tension
+        inner_brow = au_features.get("raw_inner_brow", 0.35)
+        angry = min(90.0, max(2.0, (0.31 - inner_brow) * 350.0)) if inner_brow < 0.31 else 2.0
 
-        total_active = happy + sad + angry + fear + surprise + disgust + contempt
-        neutral = max(10.0, 100.0 - total_active)
+        # 4. AU1+AU2: Surprise vs Fear
+        brow_dist = au_features.get("raw_brow_dist", 0.22)
+        lip_apt = au_features.get("raw_lip_aperture", 0.04)
+        
+        # High brows + open mouth = Surprise
+        is_surprise = brow_dist > 0.25 and lip_apt > 0.07
+        surprise = min(92.0, max(3.0, ((brow_dist - 0.22) * 200.0) + (lip_apt * 150.0))) if is_surprise else 3.0
 
-        # Normalize sum to 100%
-        raw = {"happy": happy, "sad": sad, "angry": angry, "fear": fear, 
-               "surprise": surprise, "disgust": disgust, "contempt": contempt, "neutral": neutral}
-        norm_sum = sum(raw.values())
-        return {k: round((v / norm_sum) * 100.0, 1) for k, v in raw.items()}
+        # High brows + furrow + tight lips = Fear / High Anxiety
+        is_fear = brow_dist > 0.24 and inner_brow < 0.32 and lip_apt < 0.035
+        fear = min(88.0, max(2.0, ((brow_dist - 0.22) * 180.0) + ((0.32 - inner_brow) * 200.0))) if is_fear else 2.0
+
+        # 5. AU15: Sadness (Lip corner depression)
+        lip_drop = au_features.get("lip_depressor", 0.0)
+        sad = min(85.0, max(2.0, lip_drop * 300.0)) if lip_drop > 0.07 else 2.0
+
+        # 6. AU9: Disgust (Nose wrinkle)
+        nose_comp = au_features.get("nose_compress", 0.28)
+        disgust = min(85.0, max(2.0, (0.23 - nose_comp) * 300.0)) if nose_comp < 0.23 else 2.0
+
+        # Active emotional arousal
+        active_sum = happy + contempt + angry + surprise + fear + sad + disgust
+        neutral = max(10.0, 100.0 - (active_sum * 0.75))
+
+        raw = {
+            "happy": round(happy, 1),
+            "sad": round(sad, 1),
+            "angry": round(angry, 1),
+            "fear": round(fear, 1),
+            "surprise": round(surprise, 1),
+            "disgust": round(disgust, 1),
+            "contempt": round(contempt, 1),
+            "neutral": round(neutral, 1)
+        }
+        total = sum(raw.values())
+        return {k: round((v / total) * 100.0, 1) for k, v in raw.items()}
 
     def score_frame(self, au_features: Dict[str, Any], emotions: Dict[str, float], timestamp_str: str = "00:00") -> Dict[str, Any]:
         """
