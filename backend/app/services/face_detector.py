@@ -49,13 +49,29 @@ class FaceDetector:
             "height": int(max_y - min_y)
         }
 
+        # Normalized bounding box (0.0 - 1.0)
+        bbox_norm = {
+            "x": round(float(min_x / max(1, w)), 4),
+            "y": round(float(min_y / max(1, h)), 4),
+            "width": round(float((max_x - min_x) / max(1, w)), 4),
+            "height": round(float((max_y - min_y) / max(1, h)), 4)
+        }
+
+        # Normalized landmarks (0.0 - 1.0)
+        landmarks_norm = [
+            {"x": round(float(lm.x), 4), "y": round(float(lm.y), 4)}
+            for lm in face_landmarks.landmark
+        ]
+
         # Estimate head pose (pitch, yaw, roll) using key 3D landmarks
         pose = self._estimate_head_pose(landmarks_list, w, h)
 
         return {
             "landmarks": landmarks_list,
+            "landmarks_norm": landmarks_norm,
             "raw_landmarks": face_landmarks,
             "bbox": bbox,
+            "bbox_norm": bbox_norm,
             "pose": pose,
             "image_shape": (h, w)
         }
