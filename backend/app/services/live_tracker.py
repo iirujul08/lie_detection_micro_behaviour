@@ -7,13 +7,14 @@ from ..models.schemas import CueAlert
 class LiveSessionTracker:
     """
     Stateful forensic tracker for live WebSocket lie detection sessions.
-    Implements Balanced Forensic Mode:
-    - 5-second personal baseline calibration (EAR, gaze, brow furrow, brow raise, lip aperture)
+    Aggressive Forensic Mode:
+    - 5-second personal baseline calibration
     - Relative deviation detection against personal baseline
-    - Multi-cue forensic clustering (isolated cues stay Truthful; co-occurring cue clusters raise to Suspicious / Likely Deceptive)
-    - Responsive Exponential Moving Average (EMA alpha=0.35) score smoothing
+    - Multi-cue forensic clustering with aggressive multipliers (3+ cues → 2.2x)
+    - Sustained-cue compounding bonus (up to +60% per sustained cue)
+    - Fast EMA smoothing (alpha=0.55) so score climbs rapidly
     """
-    def __init__(self, calibration_duration_sec: float = 5.0, ema_alpha: float = 0.35):
+    def __init__(self, calibration_duration_sec: float = 5.0, ema_alpha: float = 0.55):
         self.calibration_duration = calibration_duration_sec
         self.ema_alpha = ema_alpha
 
@@ -48,6 +49,16 @@ class LiveSessionTracker:
         self.was_blinking: bool = False
         self.smoothed_score: float = 15.0
 
+        # Sustained-cue tracking: maps cue-key -> consecutive active frame count
+        self.sustained_cue_counts: Dict[str, int] = {
+            "blink":      0,
+            "gaze":       0,
+            "lip_press":  0,
+            "brow_lower": 0,
+            "brow_raise": 0,
+            "asym":       0,
+        }
+
     def reset(self):
         """Reset session calibration and history."""
         self.first_face_time = None
@@ -65,6 +76,22 @@ class LiveSessionTracker:
         self.blink_timestamps.clear()
         self.was_blinking = False
         self.smoothed_score = 15.0
+        for k in self.sustained_cue_counts:
+            self.sustained_cue_counts[k] = 0
+
+    def _sustained_bonus(self, key: str, active: bool, base_weight: float) -> float:
+        """
+        If cue is active, increment the sustained counter and return a compounding bonus.
+        Bonus grows linearly up to +60% of base_weight after 10 consecutive frames.
+        """
+        if active:
+            self.sustained_cue_counts[key] = min(self.sustained_cue_counts[key] + 1, 10)
+        else:
+            self.sustained_cue_counts[key] = 0
+            return 0.0
+        frames = self.sustained_cue_counts[key]
+        bonus_frac = min(0.60, (frames - 1) * 0.07)
+        return base_weight * bonus_frac
 
     def process_frame(
         self,
@@ -154,105 +181,133 @@ class LiveSessionTracker:
             self.baseline_blink_rate = max(10.0, (calib_blinks_count / self.calibration_duration) * 60.0)
 
         # -------------------------------------------------------------
-        # 2. Balanced Forensic Scoring Engine (Cluster Multi-Cue Model)
+        # 2. Aggressive Forensic Scoring Engine (Cluster + Sustained Model)
         # -------------------------------------------------------------
         cues: List[Dict[str, Any]] = []
         cue_weight = 0.0
 
         # Baseline resting deception score
-        base_score = 12.0
+        base_score = 10.0
 
-        # A. Eye Blink & Acceleration Detection
+        # ── A. Eye Blink Acceleration ─────────────────────────────────
         is_blink = ear < max(0.15, self.baseline_ear * 0.65)
         if is_blink and not self.was_blinking:
             self.blink_timestamps.append(now)
         self.was_blinking = is_blink
 
-        # Rolling 8s blink rate
         self.blink_timestamps = [t for t in self.blink_timestamps if now - t <= 8.0]
         recent_blink_rate = (len(self.blink_timestamps) / 8.0) * 60.0
 
-        if recent_blink_rate > max(28.0, self.baseline_blink_rate * 1.85):
-            cue_weight += 12.0
+        blink_base = 14.0
+        blink_active = recent_blink_rate > max(24.0, self.baseline_blink_rate * 1.6)
+        if blink_active:
+            cue_weight += blink_base + self._sustained_bonus("blink", True, blink_base)
             cues.append({
                 "time": timestamp_str,
                 "text": f"Blink Acceleration ({int(recent_blink_rate)}/min)",
                 "severity": "amber",
                 "desc": "Elevated rapid blink frequency indicating autonomic cognitive stress"
             })
+        else:
+            self._sustained_bonus("blink", False, blink_base)
 
-        # B. Saccadic Gaze Aversion (Ocular diversion from calibrated center)
+        # ── B. Saccadic Gaze Aversion ─────────────────────────────────
         gaze_offset = abs(gaze_ratio - self.baseline_gaze_ratio)
-        if gaze_offset > 0.14:
-            cue_weight += 14.0
+        gaze_base = 18.0
+        gaze_active = gaze_offset > 0.10  # Lowered threshold (was 0.14)
+        if gaze_active:
+            scaled = min(gaze_base * 1.5, gaze_base + gaze_offset * 60.0)
+            cue_weight += scaled + self._sustained_bonus("gaze", True, gaze_base)
             cues.append({
                 "time": timestamp_str,
                 "text": "Saccadic Gaze Aversion",
                 "severity": "amber",
                 "desc": "Ocular displacement away from central focal axis during cognition"
             })
+        else:
+            self._sustained_bonus("gaze", False, gaze_base)
 
-        # C. AU24: Lip Compression / Press (Tightening relative to baseline aperture)
-        if self.baseline_lip_aperture > 0.015 and lip_apt < (self.baseline_lip_aperture * 0.62):
-            cue_weight += 16.0
+        # ── C. AU24: Lip Compression / Press ─────────────────────────
+        lip_base = 20.0
+        lip_active = (
+            self.baseline_lip_aperture > 0.010
+            and lip_apt < (self.baseline_lip_aperture * 0.70)  # Loosened from 0.62
+        )
+        if lip_active:
+            ratio = max(0.0, 1.0 - lip_apt / max(0.001, self.baseline_lip_aperture))
+            scaled = min(lip_base * 1.6, lip_base + ratio * 18.0)
+            cue_weight += scaled + self._sustained_bonus("lip_press", True, lip_base)
             cues.append({
                 "time": timestamp_str,
                 "text": "Lip Compression & Press (AU24)",
                 "severity": "red",
                 "desc": "Verbal hesitation marker and cognitive concealment tension"
             })
+        else:
+            self._sustained_bonus("lip_press", False, lip_base)
 
-        # D. AU4: Brow Lowerer & Furrow (Inner brow knit relative to baseline)
-        if inner_brow < (self.baseline_inner_brow * 0.84):
-            cue_weight += 16.0
+        # ── D. AU4: Brow Lowerer & Furrow ────────────────────────────
+        brow_lower_base = 18.0
+        brow_lower_active = inner_brow < (self.baseline_inner_brow * 0.88)  # Loosened from 0.84
+        if brow_lower_active:
+            depth = max(0.0, self.baseline_inner_brow - inner_brow) / max(0.001, self.baseline_inner_brow)
+            scaled = min(brow_lower_base * 1.5, brow_lower_base + depth * 20.0)
+            cue_weight += scaled + self._sustained_bonus("brow_lower", True, brow_lower_base)
             cues.append({
                 "time": timestamp_str,
                 "text": "Brow Lowerer & Furrow (AU4)",
                 "severity": "red",
                 "desc": "Acute cognitive load and suppressed disagreement tension"
             })
+        else:
+            self._sustained_bonus("brow_lower", False, brow_lower_base)
 
-        # E. AU1+2: Brow Raise (Height above baseline)
-        if brow_dist > (self.baseline_brow_dist * 1.22):
-            cue_weight += 10.0
+        # ── E. AU1+2: Brow Raise ─────────────────────────────────────
+        brow_raise_base = 12.0
+        brow_raise_active = brow_dist > (self.baseline_brow_dist * 1.18)  # Loosened from 1.22
+        if brow_raise_active:
+            cue_weight += brow_raise_base + self._sustained_bonus("brow_raise", True, brow_raise_base)
             cues.append({
                 "time": timestamp_str,
                 "text": "Eyebrow Raise (AU1+2)",
                 "severity": "amber",
                 "desc": "Exaggerated surprise marker or cognitive retrieval query"
             })
+        else:
+            self._sustained_bonus("brow_raise", False, brow_raise_base)
 
-        # F. AU14: Unilateral Dimpler / Micro-Contempt (Roll-compensated asymmetry)
-        if mouth_asym > max(0.11, self.baseline_mouth_asym * 2.2):
-            cue_weight += 16.0
+        # ── F. AU14: Unilateral Micro-Contempt ───────────────────────
+        asym_base = 20.0
+        asym_active = mouth_asym > max(0.09, self.baseline_mouth_asym * 2.0)  # Loosened from 0.11 / 2.2
+        if asym_active:
+            depth = max(0.0, mouth_asym - self.baseline_mouth_asym) * 80.0
+            scaled = min(asym_base * 1.6, asym_base + depth)
+            cue_weight += scaled + self._sustained_bonus("asym", True, asym_base)
             cues.append({
                 "time": timestamp_str,
                 "text": "Unilateral Lip Asymmetry (AU14)",
                 "severity": "red",
                 "desc": "Micro-contempt or asymmetric emotional masking"
             })
+        else:
+            self._sustained_bonus("asym", False, asym_base)
 
-        # G. Forensic Co-Occurrence Synergy Multiplier:
-        # In validated forensic behavioral analysis, isolated cues do not prove deceit.
-        # True deceit manifests as CONGRUENT CLUSTERS of simultaneous cues.
+        # ── G. Aggressive Co-Occurrence Synergy Multiplier ───────────
+        # 3+ cues → 2.2x | 2 cues → 1.65x | 1 cue → 0.85x (slight damp only)
         active_cue_count = len(cues)
         if active_cue_count >= 3:
-            # 3+ co-occurring cues -> high synergy multiplier
-            cue_weight *= 1.45
+            cue_weight *= 2.2
         elif active_cue_count == 2:
-            # 2 co-occurring cues -> moderate synergy multiplier
-            cue_weight *= 1.15
+            cue_weight *= 1.65
         elif active_cue_count == 1:
-            # Single isolated cue -> damp to prevent false alarms
-            cue_weight *= 0.70
+            cue_weight *= 0.85
 
         raw_score = base_score + cue_weight
 
-        # H. Emotional Concordance vs Tension
-        # Genuine bilateral smile decreases deception likelihood
+        # ── H. Emotional Concordance vs Tension ──────────────────────
         is_smiling = mouth_w > (self.baseline_mouth_width * 1.08) and mouth_asym < 0.08
         if is_smiling:
-            raw_score = max(8.0, raw_score - 14.0)
+            raw_score = max(8.0, raw_score - 12.0)
             cues.append({
                 "time": timestamp_str,
                 "text": "Bilateral Concordant Smile (AU12)",
@@ -262,27 +317,27 @@ class LiveSessionTracker:
         elif emotions.get("neutral", 0.0) > 75.0 and active_cue_count == 0:
             raw_score = max(8.0, raw_score - 5.0)
 
-        # Subtle contribution from verified FACS negative micro-expressions
+        # FACS tension emotion contribution (raised weights)
         facs_tension = (
-            (emotions.get("contempt", 0.0) * 0.15) +
-            (emotions.get("fear", 0.0) * 0.15) +
-            (emotions.get("angry", 0.0) * 0.12)
+            (emotions.get("contempt", 0.0) * 0.22) +
+            (emotions.get("fear",    0.0) * 0.22) +
+            (emotions.get("angry",   0.0) * 0.18)
         )
         raw_score += facs_tension
 
-        # Clamp raw score between 5.0 and 96.0
-        clamped_raw = max(6.0, min(96.0, raw_score))
+        # Clamp raw score between 6.0 and 99.0
+        clamped_raw = max(6.0, min(99.0, raw_score))
 
         # -------------------------------------------------------------
-        # 3. Exponential Moving Average Smoothing (alpha=0.35)
+        # 3. Fast EMA Smoothing (alpha=0.55 → rises in ~4-5 frames)
         # -------------------------------------------------------------
         self.smoothed_score = (self.ema_alpha * clamped_raw) + ((1.0 - self.ema_alpha) * self.smoothed_score)
         final_score = round(float(self.smoothed_score), 1)
 
         # Categorical Forensic Assessment Label
-        if final_score >= 68.0:
+        if final_score >= 65.0:
             label = "Likely Deceptive"
-        elif final_score >= 40.0:
+        elif final_score >= 38.0:
             label = "Suspicious"
         else:
             label = "Truthful"
