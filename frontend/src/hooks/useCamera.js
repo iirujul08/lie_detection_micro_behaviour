@@ -4,8 +4,10 @@ export function useCamera() {
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState(null);
   const [isPermissionDenied, setIsPermissionDenied] = useState(false);
+  
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const isActiveRef = useRef(false);
   const offscreenCanvasRef = useRef(null);
 
   const startCamera = useCallback(async () => {
@@ -30,6 +32,8 @@ export function useCamera() {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(e => console.warn('Video play warning:', e));
       }
+      
+      isActiveRef.current = true;
       setIsActive(true);
       return true;
     } catch (err) {
@@ -41,6 +45,7 @@ export function useCamera() {
           ? 'Camera permission denied. Please allow camera access in your browser settings.'
           : (err.message || 'Camera not detected or in use by another application.')
       );
+      isActiveRef.current = false;
       setIsActive(false);
       return false;
     }
@@ -54,36 +59,44 @@ export function useCamera() {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    isActiveRef.current = false;
     setIsActive(false);
   }, []);
 
   /**
-   * Resizes to 480x360 (or aspect ratio equivalent) and encodes as JPEG at quality 0.75
-   * Provides crisp facial details for MediaPipe FaceMesh while maintaining minimal latency.
+   * Captures the current video frame resized to 480x360 at 0.75 JPEG quality.
+   * Uses isActiveRef and streamRef to completely eliminate stale React closure bugs.
    */
   const captureFrameBase64 = useCallback((quality = 0.75) => {
-    if (!videoRef.current || !isActive) return null;
+    if (!videoRef.current || !streamRef.current || !isActiveRef.current) {
+      return null;
+    }
 
     const video = videoRef.current;
-    if (video.videoWidth === 0 || video.videoHeight === 0) return null;
+    if (!video.videoWidth || !video.videoHeight || video.readyState < 2) {
+      return null;
+    }
 
     if (!offscreenCanvasRef.current) {
       offscreenCanvasRef.current = document.createElement('canvas');
     }
     const canvas = offscreenCanvasRef.current;
     
-    // Target 480px width preserving video aspect ratio
+    // Scale to 480px width preserving video aspect ratio
     const targetW = 480;
-    const aspect = (video.videoHeight || 480) / (video.videoWidth || 640);
+    const aspect = video.videoHeight / video.videoWidth;
     const targetH = Math.round(targetW * aspect) || 360;
 
-    canvas.width = targetW;
-    canvas.height = targetH;
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, targetW, targetH);
 
     return canvas.toDataURL('image/jpeg', quality);
-  }, [isActive]);
+  }, []);
 
   useEffect(() => {
     return () => {

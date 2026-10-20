@@ -1,7 +1,6 @@
 import json
 import base64
 import time
-import asyncio
 import cv2
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -15,12 +14,10 @@ router = APIRouter(tags=["Real-time Live WebSocket"])
 @router.websocket("/ws/live")
 async def live_websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    print("[TruthLens WS] Client connected to /ws/live")
     
     # Per-connection session tracker for baseline calibration & EMA smoothing
     tracker = LiveSessionTracker(calibration_duration_sec=5.0, ema_alpha=0.3)
-    
-    # Queue size = 1 drops older frames if processing falls behind
-    frame_queue = asyncio.Queue(maxsize=1)
     
     frame_counter = 0
     last_emotions = None
@@ -28,47 +25,23 @@ async def live_websocket_endpoint(websocket: WebSocket):
     fps_frames = 0
     calculated_fps = 0.0
 
-    async def receiver():
-        nonlocal calculated_fps, last_fps_time, fps_frames
-        try:
-            while True:
-                text_data = await websocket.receive_text()
-                try:
-                    msg = json.loads(text_data)
-                except Exception:
-                    continue
-
-                msg_type = msg.get("type", "frame")
-                if msg_type == "ping":
-                    await websocket.send_text(json.dumps({"type": "pong", "timestamp": time.time()}))
-                    continue
-
-                if msg_type == "reset":
-                    tracker.reset()
-                    continue
-
-                # Frame flow: drop older queued frame so we ALWAYS process the newest frame
-                if frame_queue.full():
-                    try:
-                        frame_queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        pass
-                
-                await frame_queue.put(msg)
-        except WebSocketDisconnect:
-            pass
-        except Exception as e:
-            print(f"[TruthLens WS] Receiver error: {e}")
-
-    receiver_task = asyncio.create_task(receiver())
-
     try:
         while True:
-            # Wait for next frame message
+            text_data = await websocket.receive_text()
             try:
-                msg = await frame_queue.get()
-            except asyncio.CancelledError:
-                break
+                msg = json.loads(text_data)
+            except Exception:
+                continue
+
+            msg_type = msg.get("type", "frame")
+            if msg_type == "ping":
+                await websocket.send_text(json.dumps({"type": "pong", "timestamp": time.time()}))
+                continue
+
+            if msg_type == "reset":
+                tracker.reset()
+                print("[TruthLens WS] Session tracker reset requested.")
+                continue
 
             t0 = time.perf_counter()
 
@@ -83,11 +56,13 @@ async def live_websocket_endpoint(websocket: WebSocket):
                 img_bytes = base64.b64decode(base64_data)
                 np_arr = np.frombuffer(img_bytes, np.uint8)
                 frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            except Exception:
+            except Exception as e:
+                print(f"[TruthLens WS] Frame decode error: {e}")
                 await websocket.send_text(json.dumps({"error": "Invalid base64 frame encoding"}))
                 continue
 
             if frame is None or frame.size == 0:
+                print("[TruthLens WS] Decoded frame is empty!")
                 continue
 
             # FPS calculation
@@ -100,16 +75,12 @@ async def live_websocket_endpoint(websocket: WebSocket):
 
             timestamp_str = msg.get("timestamp", "00:00")
 
-            # 1. MediaPipe FaceMesh (single reusable singleton instance)
+            # 1. MediaPipe FaceMesh (multi-tier detection)
             det_result = face_detector.process_frame(frame)
-            if det_result:
-                print(f"[TruthLens LIVE] Face DETECTED! Landmarks count: {len(det_result['landmarks'])}")
-            else:
-                cv2.imwrite("uploads/last_failed_frame.jpg", frame)
-                print(f"[TruthLens LIVE] Face NOT detected on frame {frame.shape}. Saved to uploads/last_failed_frame.jpg")
 
             if not det_result:
                 proc_ms = round((time.perf_counter() - t0) * 1000, 1)
+                print(f"[TruthLens WS] Frame {frame.shape}: No face detected ({proc_ms}ms)")
                 payload = {
                     "face_detected": False,
                     "confidence": 0.0,
@@ -180,17 +151,12 @@ async def live_websocket_endpoint(websocket: WebSocket):
                 "model_trained": deception_scorer.model_trained
             }
 
+            if frame_counter % 15 == 0:
+                print(f"[TruthLens WS] Frame {frame_counter}: Face tracked, score={scoring['score']}% ({scoring['label']}) in {proc_ms}ms")
+
             await websocket.send_text(json.dumps(payload))
 
     except WebSocketDisconnect:
-        pass
+        print("[TruthLens WS] Client disconnected cleanly.")
     except Exception as e:
-        print(f"[TruthLens WS] Loop error: {e}")
-    finally:
-        receiver_task.cancel()
-        try:
-            await receiver_task
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
+        print(f"[TruthLens WS] Exception in loop: {e}")

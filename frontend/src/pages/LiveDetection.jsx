@@ -201,36 +201,25 @@ export default function LiveDetection({ onShowToast }) {
     return `${mins}:${secs}`;
   };
 
+  const streamTickerRef = useRef(null);
+
   // Single-frame-at-a-time flow control
   const sendNextFrame = useCallback(() => {
     if (!isRunningRef.current || !videoRef.current || isWaitingForResponseRef.current) {
       return;
     }
 
-    const frameBase64 = captureFrameBase64(0.75); // Crisp resolution and quality
+    const frameBase64 = captureFrameBase64(0.75);
     if (!frameBase64) {
-      // Retry in 50ms if video frame wasn't ready
-      setTimeout(sendNextFrame, 50);
       return;
     }
 
     isWaitingForResponseRef.current = true;
     lastSendTimeRef.current = performance.now();
 
-    // Safety timeout: if backend drops message, unlock after 1200ms
-    clearTimeout(responseTimeoutRef.current);
-    responseTimeoutRef.current = setTimeout(() => {
-      if (isWaitingForResponseRef.current) {
-        isWaitingForResponseRef.current = false;
-        sendNextFrame();
-      }
-    }, 1200);
-
     const sent = sendFrame(frameBase64, formatTime(sessionTimeRef.current));
     if (!sent) {
-      // Socket still connecting, unlock and retry in 100ms
       isWaitingForResponseRef.current = false;
-      setTimeout(sendNextFrame, 100);
     }
   }, [captureFrameBase64, sendFrame]);
 
@@ -265,11 +254,20 @@ export default function LiveDetection({ onShowToast }) {
       });
     }, 1000);
 
-    // Kick off first frame
-    setTimeout(() => {
-      isWaitingForResponseRef.current = false;
-      sendNextFrame();
-    }, 300);
+    // Frame transmission ticker: fires every 100ms (~10 FPS max)
+    // Only sends if isWaitingForResponseRef is false (strict 1-frame-at-a-time)
+    clearInterval(streamTickerRef.current);
+    streamTickerRef.current = setInterval(() => {
+      if (isRunningRef.current) {
+        // Safety: unlock if waiting longer than 750ms
+        if (isWaitingForResponseRef.current && (performance.now() - lastSendTimeRef.current > 750)) {
+          isWaitingForResponseRef.current = false;
+        }
+        if (!isWaitingForResponseRef.current) {
+          sendNextFrame();
+        }
+      }
+    }, 100);
 
     onShowToast('Pipeline Active', 'Webcam streaming at 8-10 FPS with 5s baseline calibration.', 'info');
   };
@@ -278,7 +276,7 @@ export default function LiveDetection({ onShowToast }) {
     setIsRunning(false);
     isRunningRef.current = false;
     isWaitingForResponseRef.current = false;
-    clearTimeout(responseTimeoutRef.current);
+    clearInterval(streamTickerRef.current);
     clearInterval(timerIntervalRef.current);
 
     stopCamera();
