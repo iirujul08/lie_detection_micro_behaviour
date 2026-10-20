@@ -4,7 +4,7 @@ import mediapipe as mp
 from typing import Optional, Dict, Any, Tuple
 
 class FaceDetector:
-    def __init__(self, max_num_faces: int = 1, min_detection_confidence: float = 0.5, min_tracking_confidence: float = 0.5):
+    def __init__(self, max_num_faces: int = 1, min_detection_confidence: float = 0.25, min_tracking_confidence: float = 0.25):
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             static_image_mode=False,
@@ -13,19 +13,32 @@ class FaceDetector:
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence
         )
+        self.clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
 
     def process_frame(self, image_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
         """
         Process a BGR image frame and return landmark points, bounding box, and pose.
+        Includes adaptive contrast compensation (CLAHE) for backlit or shadowed faces.
         """
         if image_bgr is None or image_bgr.size == 0:
             return None
 
         h, w = image_bgr.shape[:2]
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        image_rgb.flags.writeable = False
         results = self.face_mesh.process(image_rgb)
 
-        if not results.multi_face_landmarks:
+        # Pass 2: Adaptive CLAHE contrast enhancement for backlit or shadowed webcam conditions
+        if not results or not results.multi_face_landmarks:
+            lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
+            l_chan, a_chan, b_chan = cv2.split(lab)
+            l_enhanced = self.clahe.apply(l_chan)
+            enhanced_bgr = cv2.cvtColor(cv2.merge((l_enhanced, a_chan, b_chan)), cv2.COLOR_LAB2BGR)
+            enhanced_rgb = cv2.cvtColor(enhanced_bgr, cv2.COLOR_BGR2RGB)
+            enhanced_rgb.flags.writeable = False
+            results = self.face_mesh.process(enhanced_rgb)
+
+        if not results or not results.multi_face_landmarks:
             return None
 
         # Take first detected face

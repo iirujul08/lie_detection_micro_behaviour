@@ -207,7 +207,7 @@ export default function LiveDetection({ onShowToast }) {
       return;
     }
 
-    const frameBase64 = captureFrameBase64(0.6); // 320x240, 0.6 quality
+    const frameBase64 = captureFrameBase64(0.75); // Crisp resolution and quality
     if (!frameBase64) {
       // Retry in 50ms if video frame wasn't ready
       setTimeout(sendNextFrame, 50);
@@ -221,13 +221,17 @@ export default function LiveDetection({ onShowToast }) {
     clearTimeout(responseTimeoutRef.current);
     responseTimeoutRef.current = setTimeout(() => {
       if (isWaitingForResponseRef.current) {
-        console.warn('[TruthLens] Response timeout, releasing lock for next frame.');
         isWaitingForResponseRef.current = false;
         sendNextFrame();
       }
     }, 1200);
 
-    sendFrame(frameBase64, formatTime(sessionTimeRef.current));
+    const sent = sendFrame(frameBase64, formatTime(sessionTimeRef.current));
+    if (!sent) {
+      // Socket still connecting, unlock and retry in 100ms
+      isWaitingForResponseRef.current = false;
+      setTimeout(sendNextFrame, 100);
+    }
   }, [captureFrameBase64, sendFrame]);
 
   const handleStartCamera = async () => {

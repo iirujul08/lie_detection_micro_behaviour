@@ -58,10 +58,10 @@ export function useCamera() {
   }, []);
 
   /**
-   * Resizes to 320x240 and encodes as JPEG at quality 0.6
-   * For optimal 8-10 FPS WebSocket telemetry without network buffer bloat.
+   * Resizes to 480x360 (or aspect ratio equivalent) and encodes as JPEG at quality 0.75
+   * Provides crisp facial details for MediaPipe FaceMesh while maintaining minimal latency.
    */
-  const captureFrameBase64 = useCallback((quality = 0.6) => {
+  const captureFrameBase64 = useCallback((quality = 0.75) => {
     if (!videoRef.current || !isActive) return null;
 
     const video = videoRef.current;
@@ -71,11 +71,16 @@ export function useCamera() {
       offscreenCanvasRef.current = document.createElement('canvas');
     }
     const canvas = offscreenCanvasRef.current;
-    // Exactly 320x240 resolution for frame compression
-    canvas.width = 320;
-    canvas.height = 240;
+    
+    // Target 480px width preserving video aspect ratio
+    const targetW = 480;
+    const aspect = (video.videoHeight || 480) / (video.videoWidth || 640);
+    const targetH = Math.round(targetW * aspect) || 360;
+
+    canvas.width = targetW;
+    canvas.height = targetH;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, 320, 240);
+    ctx.drawImage(video, 0, 0, targetW, targetH);
 
     return canvas.toDataURL('image/jpeg', quality);
   }, [isActive]);
