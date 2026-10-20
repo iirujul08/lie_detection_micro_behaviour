@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TruthLens — Facial & Micro-Expression Lie Detector</title>
+  <meta name="description" content="State-of-the-art AI analytics platform for micro-expression analysis, involuntary Action Unit telemetry, and probabilistic deception assessment.">
+  
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              bg: '#0B0F14',
+              surface: '#121821',
+              elevated: '#17202C',
+              border: '#1E2733',
+              borderLight: '#2A3647',
+              cyan: '#22D3EE',
+              violet: '#8B5CF6',
+              truth: '#10B981',
+              suspicious: '#F59E0B',
+              deceptive: '#EF4444'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Chart.js CDN for high-performance telemetry visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="bg-[#0B0F14] text-slate-200 min-h-screen flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200 relative bg-grid-pattern">
+
+  <!-- Background Ambient Glow Accents -->
+  <div class="fixed inset-0 pointer-events-none z-0 radial-glow-cyan"></div>
+  <div class="fixed inset-0 pointer-events-none z-0 radial-glow-ambient"></div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col space-y-3 pointer-events-none max-w-md w-full" aria-live="polite"></div>
+
+  <!-- Global Backend Offline Banner -->
+  <aside id="offline-banner" class="hidden bg-gradient-to-r from-red-950/90 via-red-900/80 to-red-950/90 border-b border-red-500/40 text-red-200 px-4 py-2.5 text-xs sm:text-sm font-medium z-40 relative backdrop-blur-md shadow-lg" data-api="GET /api/health" role="alert">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-2.5">
+        <span class="relative flex h-2.5 w-2.5">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+        </span>
+        <span class="font-semibold text-white">Backend Offline:</span>
+        <span>Cannot reach FastAPI server (<code class="font-mono bg-red-950 px-1.5 py-0.5 rounded text-red-300">http://localhost:8000/api/health</code>). Running in local simulation mode.</span>
+      </div>
+      <div class="flex items-center space-x-3">
+        <button id="btn-reconnect-backend" data-api="GET /api/health" class="px-2.5 py-1 rounded bg-red-800/80 hover:bg-red-700 text-white text-xs font-semibold transition border border-red-600/50">
+          Retry Ping
+        </button>
+        <button id="btn-dismiss-offline-banner" class="text-red-300 hover:text-white transition" aria-label="Dismiss banner">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Sticky Top Navigation Bar -->
+  <header class="sticky top-0 z-30 w-full border-b border-[#1E2733] bg-[#0B0F14]/90 backdrop-blur-xl">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      
+      <!-- Brand Logo -->
+      <a href="#home" class="nav-brand flex items-center space-x-3 group cursor-pointer focus:outline-none" data-target="screen-home" id="nav-brand-logo">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#22D3EE] to-[#8B5CF6] p-0.5 shadow-[0_0_15px_rgba(34,211,238,0.35)] group-hover:shadow-[0_0_20px_rgba(34,211,238,0.6)] transition duration-300">
+          <div class="w-full h-full bg-[#0B0F14] rounded-[10px] flex items-center justify-center">
+            <!-- Neural Eye / Lens Icon -->
+            <svg class="w-5 h-5 text-[#22D3EE] group-hover:scale-110 transition-transform duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+              <path d="M12 5v2m0 10v2m7-7h-2M7 12H5"></path>
+            </svg>
+          </div>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+            Truth<span class="text-transparent bg-clip-text bg-gradient-to-r from-[#22D3EE] to-[#8B5CF6]">Lens</span>
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/70 border border-cyan-800/60 text-cyan-400 font-semibold uppercase tracking-wider">AI v2.4</span>
+          </span>
+          <span class="text-[10px] text-slate-400 -mt-1 hidden sm:block">Micro-Expression FACS Analytics</span>
+        </div>
+      </a>
+
+      <!-- Navigation Links -->
+      <nav class="hidden md:flex items-center space-x-1 lg:space-x-2">
+        <button data-target="screen-home" id="nav-link-home" class="nav-item nav-tab-active px-3 py-1.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition border border-transparent">
+          Home
+        </button>
+        <button data-target="screen-live" id="nav-link-live" class="nav-item px-3 py-1.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition border border-transparent flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+          Live Detection
+        </button>
+        <button data-target="screen-upload" id="nav-link-upload" class="nav-item px-3 py-1.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition border border-transparent">
+          Upload
+        </button>
+        <button data-target="screen-history" id="nav-link-history" class="nav-item px-3 py-1.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition border border-transparent" data-api="GET /api/sessions">
+          History
+        </button>
+        <button data-target="screen-metrics" id="nav-link-metrics" class="nav-item px-3 py-1.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition border border-transparent" data-api="GET /api/model-info">
+          Metrics
+        </button>
+        <button data-target="screen-about" id="nav-link-about" class="nav-item px-3 py-1.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition border border-transparent">
+          About
+        </button>
+      </nav>
+
+      <!-- Right Controls: Backend Status & Actions -->
+      <div class="flex items-center space-x-3">
+        <!-- Backend Status Pill -->
+        <div id="backend-status-pill" data-api="GET /api/health" class="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-[#121821] border border-[#1E2733] text-xs font-mono select-none cursor-pointer hover:border-slate-700 transition" title="Click to simulate Backend Online/Offline state">
+          <span id="backend-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-status-pulse"></span>
+          <span id="backend-status-text" class="text-slate-300 text-[11px] font-medium hidden sm:inline">Backend: Online</span>
+        </div>
+
+        <!-- Quick Demo Live Button in header -->
+        <button id="btn-header-quick-live" data-target="screen-live" class="nav-item hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 hover:from-cyan-400 hover:to-violet-500 text-slate-950 text-xs font-semibold shadow-[0_0_15px_rgba(34,211,238,0.3)] transition transform hover:scale-[1.02] active:scale-[0.98]">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <span>Run Camera</span>
+        </button>
+
+        <!-- Mobile Menu Hamburger -->
+        <button id="btn-mobile-menu" class="md:hidden p-2 rounded-xl bg-[#121821] border border-[#1E2733] text-slate-300 hover:text-white" aria-label="Toggle mobile menu">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Mobile Navigation Drawer Dropdown -->
+    <div id="mobile-nav-menu" class="hidden md:hidden border-b border-[#1E2733] bg-[#0B0F14]/98 px-4 pt-2 pb-4 space-y-1">
+      <button data-target="screen-home" class="nav-item-mobile w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-[#121821]">Home</button>
+      <button data-target="screen-live" class="nav-item-mobile w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-[#121821]">Live Detection</button>
+      <button data-target="screen-upload" class="nav-item-mobile w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-[#121821]">Upload Analysis</button>
+      <button data-target="screen-history" class="nav-item-mobile w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-[#121821]">History</button>
+      <button data-target="screen-metrics" class="nav-item-mobile w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-[#121821]">Model & Metrics</button>
+      <button data-target="screen-about" class="nav-item-mobile w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-[#121821]">About & Research</button>
+    </div>
+  </header>
+
+  <!-- MAIN VIEWPORT CONTAINER -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 z-10">
+
+    <!-- ========================================================================= -->
+    <!-- SCREEN 1: HOME -->
+    <!-- ========================================================================= -->
+    <section id="screen-home" class="screen-view space-y-16 py-4">
+      
+      <!-- Hero Section -->
+      <div class="relative rounded-3xl p-8 sm:p-14 lg:p-16 border border-[#1E2733] bg-gradient-to-b from-[#121821] via-[#0E141D] to-[#0B0F14] overflow-hidden shadow-2xl">
+        <!-- Radial backdrop illumination -->
+        <div class="absolute -top-24 -right-24 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div class="absolute -bottom-24 -left-24 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div class="max-w-3xl space-y-6 relative z-10">
+          <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-800/50 text-cyan-300 text-xs font-semibold tracking-wide">
+            <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+            <span>Next-Gen Micro-Expression & FACS Synthesis</span>
+          </div>
+
+          <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-[1.15]">
+            Unmask Subtle Deception with 
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#22D3EE] via-teal-300 to-[#8B5CF6]">Sub-Second Facial Cues</span>
+          </h1>
+
+          <p class="text-base sm:text-lg text-slate-400 font-normal leading-relaxed max-w-2xl">
+            Detect involuntary facial micro-tremors, asymmetric Action Unit bursts, and subtle gaze aversion in real time using deep neural networks trained on high-speed temporal FACS benchmarks.
+          </p>
+
+          <!-- Action Buttons -->
+          <div class="pt-4 flex flex-wrap gap-4 items-center">
+            <button id="btn-start-live" data-api="WS /ws/live" class="nav-item-action inline-flex items-center justify-center space-x-2.5 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-[#22D3EE] to-[#8B5CF6] hover:from-[#38bdf8] hover:to-[#a78bfa] text-slate-950 font-bold text-sm tracking-wide shadow-[0_0_25px_rgba(34,211,238,0.4)] hover:shadow-[0_0_35px_rgba(34,211,238,0.6)] transition duration-200 transform hover:-translate-y-0.5 active:translate-y-0" data-target="screen-live">
+              <svg class="w-5 h-5 text-slate-950" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              <span>Start Live Detection</span>
+            </button>
+
+            <button id="btn-upload" data-api="POST /api/analyze/image" class="nav-item-action inline-flex items-center justify-center space-x-2.5 px-6 py-3.5 rounded-2xl bg-[#17202C] hover:bg-[#1E2733] border border-[#2A3647] hover:border-cyan-500/40 text-slate-200 hover:text-white font-semibold text-sm transition duration-200 transform hover:-translate-y-0.5 active:translate-y-0" data-target="screen-upload">
+              <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+              <span>Upload Image/Video</span>
+            </button>
+          </div>
+
+          <!-- Quick Telemetry Badges -->
+          <div class="pt-4 flex flex-wrap items-center gap-6 text-xs text-slate-400 font-mono">
+            <div class="flex items-center space-x-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+              <span>468 3D Mesh Landmarks</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+              <span>40ms Micro-Expression Resolution</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span>FACS Action Units (AU1, AU4, AU12, AU15)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Three Core Feature Cards -->
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-sm bg-cyan-400"></span>
+            Forensic AI Telemetry Suite
+          </h2>
+          <span class="text-xs text-slate-400 font-mono">Real-time Biometric Inference</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          
+          <!-- Card 1: Micro-expressions -->
+          <div class="glass-panel rounded-2xl p-6 space-y-4 border border-[#1E2733] hover:border-cyan-500/40 transition duration-300 group hover:shadow-[0_0_20px_rgba(34,211,238,0.15)]">
+            <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <h3 class="text-lg font-bold text-white group-hover:text-cyan-300 transition">Micro-Expressions Engine</h3>
+            <p class="text-sm text-slate-400 leading-relaxed">
+              Captures fleeting involuntary muscle twitches lasting between 1/25th and 1/5th of a second. Isolates true emotional leaks before deliberate cortical masking occurs.
+            </p>
+            <div class="text-xs font-mono text-cyan-400/80 pt-2 flex items-center gap-1">
+              <span>Sub-second optical flow</span>
+              <span>&rarr;</span>
+            </div>
+          </div>
+
+          <!-- Card 2: Real-time scoring -->
+          <div class="glass-panel rounded-2xl p-6 space-y-4 border border-[#1E2733] hover:border-violet-500/40 transition duration-300 group hover:shadow-[0_0_20px_rgba(139,92,246,0.15)]">
+            <div class="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 group-hover:scale-110 transition-transform">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+            </div>
+            <h3 class="text-lg font-bold text-white group-hover:text-violet-300 transition">Real-Time Scoring</h3>
+            <p class="text-sm text-slate-400 leading-relaxed">
+              Continuous WebSocket streaming evaluates cumulative cognitive load, 8-dimensional emotion vectors, gaze shifts, and provides probabilistic truthfulness percentage.
+            </p>
+            <div class="text-xs font-mono text-violet-400/80 pt-2 flex items-center gap-1">
+              <span>WS /ws/live streaming</span>
+              <span>&rarr;</span>
+            </div>
+          </div>
+
+          <!-- Card 3: Session history -->
+          <div class="glass-panel rounded-2xl p-6 space-y-4 border border-[#1E2733] hover:border-emerald-500/40 transition duration-300 group hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+            <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+            <h3 class="text-lg font-bold text-white group-hover:text-emerald-300 transition">Forensic Session History</h3>
+            <p class="text-sm text-slate-400 leading-relaxed">
+              Deep archival database stores every interrogation run with full timeline scrubs, Action Unit incident logs, peak score markers, and structured export capabilities.
+            </p>
+            <div class="text-xs font-mono text-emerald-400/80 pt-2 flex items-center gap-1">
+              <span>Persistent audit trail</span>
+              <span>&rarr;</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Short "How it works" 4-step strip -->
+      <div class="glass-panel rounded-2xl p-8 border border-[#1E2733] space-y-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#1E2733] pb-4">
+          <div>
+            <h2 class="text-lg font-bold text-white tracking-tight">How TruthLens Operates</h2>
+            <p class="text-xs text-slate-400">From raw photon capture to probabilistic cognitive evaluation</p>
+          </div>
+          <div class="text-xs font-mono text-slate-400 bg-[#0B0F14] px-3 py-1 rounded-lg border border-[#1E2733]">
+            Pipeline Latency: ~18ms
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 relative">
+          
+          <!-- Step 1 -->
+          <div class="space-y-2 relative">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 font-mono font-bold text-sm flex items-center justify-center">
+                01
+              </div>
+              <h4 class="font-bold text-white text-sm">Capture</h4>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed pl-11">
+              Continuous 60 FPS video input stream from browser webcam or uploaded high-definition recorded interview files.
+            </p>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="space-y-2 relative">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 font-mono font-bold text-sm flex items-center justify-center">
+                02
+              </div>
+              <h4 class="font-bold text-white text-sm">Detect Face</h4>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed pl-11">
+              Extracts 468 3D facial landmarks, head pose yaw/pitch/roll angles, and isolates primary regions of emotional interest.
+            </p>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="space-y-2 relative">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-xl bg-violet-500/20 border border-violet-500/40 text-violet-400 font-mono font-bold text-sm flex items-center justify-center">
+                03
+              </div>
+              <h4 class="font-bold text-white text-sm">Analyze Cues</h4>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed pl-11">
+              Temporal convolutional networks track Action Unit triggers (AU4 brow furrow, AU12 lip pull, AU15 lip depressor, blink rate).
+            </p>
+          </div>
+
+          <!-- Step 4 -->
+          <div class="space-y-2 relative">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 font-mono font-bold text-sm flex items-center justify-center">
+                04
+              </div>
+              <h4 class="font-bold text-white text-sm">Score</h4>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed pl-11">
+              Synthesizes an ensemble deception likelihood index with confidence intervals, highlighting suspicious peak anomalies.
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SCREEN 2: LIVE DETECTION -->
+    <!-- ========================================================================= -->
+    <section id="screen-live" class="screen-view hidden space-y-6">
+      
+      <!-- Disclaimer Banner (Required for Live) -->
+      <div id="disclaimer-live" class="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-200/90 flex items-start space-x-3 text-xs sm:text-sm">
+        <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        <div>
+          <span class="font-semibold text-amber-300">Ethical & Forensic Disclaimer:</span>
+          <span>Facial analysis gives probabilistic indicators, not proof of lying. Do not use for legal, hiring, or other high-stakes decisions. Cultural and neurological variations directly impact baseline expressions.</span>
+        </div>
+      </div>
+
+      <!-- Main Live Grid: Video Feed Left (7 cols), Analytics Telemetry Right (5 cols) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- LEFT COLUMN: Live Camera Feed & Controls -->
+        <div class="lg:col-span-7 space-y-4">
+          
+          <!-- Webcam & Overlay Box -->
+          <div class="glass-panel rounded-2xl border border-[#1E2733] overflow-hidden relative shadow-2xl bg-black">
+            
+            <!-- Video & Canvas Stacking Container -->
+            <div class="relative w-full aspect-[4/3] sm:aspect-video bg-[#080B0F] flex items-center justify-center overflow-hidden">
+              
+              <!-- Video Element for Actual Webcam Stream -->
+              <video id="webcam-video" data-api="WS /ws/live" autoplay playsinline muted class="w-full h-full object-cover mirror-mode" style="transform: scaleX(-1);"></video>
+              
+              <!-- Canvas Overlay for Facial Mesh & Landmarks -->
+              <canvas id="overlay-canvas" data-api="WS /ws/live" class="absolute inset-0 w-full h-full pointer-events-none z-10" width="640" height="480"></canvas>
+
+              <!-- Radar Scan Line -->
+              <div id="live-scanline" class="radar-scan-line hidden z-15"></div>
+
+              <!-- Live HUD Indicators (Top corners) -->
+              <div class="absolute top-3 left-3 z-20 flex items-center space-x-2">
+                <span id="badge-live-rec" class="hidden px-2.5 py-1 rounded-md bg-red-600/90 text-white font-mono text-xs font-bold tracking-wider uppercase animate-pulse flex items-center gap-1.5 shadow-lg">
+                  <span class="w-2 h-2 rounded-full bg-white"></span>
+                  LIVE STREAM
+                </span>
+                <span id="badge-stream-status" class="px-2 py-0.5 rounded-md bg-[#121821]/80 backdrop-blur border border-[#1E2733] text-slate-300 font-mono text-[11px]">
+                  Standby
+                </span>
+              </div>
+
+              <!-- Camera Idle / Permission State Overlay -->
+              <div id="camera-idle-placeholder" class="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center bg-[#0B0F14]/90 backdrop-blur-sm space-y-4">
+                <div class="w-16 h-16 rounded-2xl bg-[#121821] border border-[#1E2733] flex items-center justify-center text-cyan-400 shadow-inner">
+                  <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                </div>
+                <div class="max-w-sm space-y-1">
+                  <h3 class="text-white font-bold text-base">Webcam Inactive</h3>
+                  <p class="text-xs text-slate-400">Accept the biometric consent statement below, then click "Start Camera" to initialize the facial landmark engine.</p>
+                </div>
+                <div class="inline-flex items-center gap-2 text-[11px] font-mono text-cyan-400/80 bg-cyan-950/40 px-3 py-1 rounded-full border border-cyan-800/40">
+                  <span>Simulated Synthetic Neural Mode Active if No Webcam</span>
+                </div>
+              </div>
+
+              <!-- Face Bounding Box HUD Info (Rendered during detection) -->
+              <div id="face-hud-overlay" class="absolute bottom-3 left-3 z-20 hidden space-y-1">
+                <div class="bg-[#0B0F14]/80 backdrop-blur px-2.5 py-1 rounded border border-[#1E2733] text-[11px] font-mono text-cyan-300 flex items-center gap-2">
+                  <span>Tracking: <strong class="text-white">Subject 01</strong></span>
+                  <span class="text-slate-500">|</span>
+                  <span>Pose: <strong id="hud-pose-info" class="text-slate-200">Pitch 0° Yaw 2°</strong></span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Stats Bar Row Directly Below Feed -->
+            <div class="p-3.5 bg-[#0E141D] border-t border-[#1E2733] flex flex-wrap items-center justify-between gap-4 text-xs font-mono">
+              <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-1.5" title="Frames Per Second">
+                  <span class="text-slate-400">FPS:</span>
+                  <span id="stat-fps" data-api="WS /ws/live" class="font-bold text-cyan-400 font-mono-numbers">0.0</span>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <span class="text-slate-400">Face Detected:</span>
+                  <span id="stat-face-detected" data-api="WS /ws/live" class="font-bold text-slate-500 flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-slate-600"></span>
+                    <span>No</span>
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-1.5">
+                  <span class="text-slate-400">Confidence:</span>
+                  <span id="stat-confidence" data-api="WS /ws/live" class="font-bold text-slate-300 font-mono-numbers">--%</span>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <span class="text-slate-400">Session Timer:</span>
+                  <span id="stat-session-timer" class="font-bold text-white font-mono-numbers bg-[#121821] px-2 py-0.5 rounded border border-[#1E2733]">00:00</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Consent & Controls Card -->
+          <div class="glass-panel rounded-2xl p-4 sm:p-5 border border-[#1E2733] space-y-4">
+            
+            <!-- Consent Checkbox -->
+            <div class="flex items-start space-x-3 p-3 rounded-xl bg-[#0B0F14]/70 border border-[#1E2733]">
+              <input type="checkbox" id="consent-checkbox" class="mt-1 w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-400 focus:ring-offset-[#0B0F14] cursor-pointer">
+              <label for="consent-checkbox" class="text-xs text-slate-300 cursor-pointer select-none">
+                <strong class="text-white font-semibold">Informed Consent:</strong> I consent to webcam facial and micro-expression telemetry analysis. No raw video feed is stored on any server unless I explicitly save and opt in.
+              </label>
+            </div>
+
+            <!-- Action Buttons: Start, Stop, Save -->
+            <div class="flex flex-wrap items-center gap-3">
+              <button id="btn-start-camera" data-api="WS /ws/live" disabled class="flex-1 min-w-[140px] inline-flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-sm shadow-[0_0_15px_rgba(34,211,238,0.3)] transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span>Start Camera</span>
+              </button>
+
+              <button id="btn-stop-camera" data-api="WS /ws/live" disabled class="flex-1 min-w-[140px] inline-flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-[#17202C] hover:bg-[#1E2733] border border-[#2A3647] disabled:opacity-40 disabled:cursor-not-allowed text-red-400 font-semibold text-sm transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"></rect></svg>
+                <span>Stop Stream</span>
+              </button>
+
+              <button id="btn-save-session" data-api="POST /api/sessions" disabled class="flex-1 min-w-[140px] inline-flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm shadow-[0_0_15px_rgba(139,92,246,0.3)] transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                <span>Save Session</span>
+              </button>
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- RIGHT COLUMN: Real-Time Analytics Telemetry Panel -->
+        <div class="lg:col-span-5 space-y-4">
+          
+          <!-- Card 1: Deception Probability Gauge (Semicircle 0 - 100%) -->
+          <div class="glass-panel rounded-2xl p-5 border border-[#1E2733] space-y-3 relative overflow-hidden">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white tracking-wide uppercase flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                Deception Likelihood Gauge
+              </h3>
+              <!-- Deception Label Badge -->
+              <span id="deception-label" data-api="WS /ws/live" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-950/80 border border-emerald-500/50 text-emerald-400 tracking-wider">
+                TRUTHFUL
+              </span>
+            </div>
+
+            <!-- Semicircle SVG Gauge Container -->
+            <div class="relative flex flex-col items-center justify-center pt-2">
+              <div id="deception-gauge" data-api="WS /ws/live" class="relative w-52 h-28 flex items-center justify-center">
+                <svg viewBox="0 0 200 110" class="w-full h-full overflow-visible">
+                  <defs>
+                    <linearGradient id="gauge-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#10B981" />
+                      <stop offset="50%" stop-color="#F59E0B" />
+                      <stop offset="100%" stop-color="#EF4444" />
+                    </linearGradient>
+                  </defs>
+                  <!-- Background Track Arc -->
+                  <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#1E2733" stroke-width="14" stroke-linecap="round"></path>
+                  <!-- Active Gradient Arc (Animated via dasharray) -->
+                  <path id="gauge-progress-path" d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#gauge-gradient)" stroke-width="14" stroke-linecap="round" stroke-dasharray="251.2" stroke-dashoffset="200" class="transition-all duration-500 ease-out"></path>
+                  <!-- Needle Pointer -->
+                  <g id="gauge-needle-group" class="gauge-needle" style="transform: rotate(-70deg);">
+                    <line x1="100" y1="95" x2="100" y2="28" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" filter="drop-shadow(0 0 4px rgba(255,255,255,0.8))"></line>
+                    <circle cx="100" cy="95" r="6" fill="#22D3EE" stroke="#0B0F14" stroke-width="2"></circle>
+                  </g>
+                </svg>
+
+                <!-- Center Score Typography -->
+                <div class="absolute bottom-0 text-center flex flex-col items-center">
+                  <span id="gauge-score-value" data-api="WS /ws/live" class="text-3xl font-extrabold font-mono text-white tracking-tight">18%</span>
+                  <span class="text-[10px] text-slate-400 font-mono uppercase tracking-widest">Cognitive Load</span>
+                </div>
+              </div>
+
+              <!-- Gauge Legend Markers -->
+              <div class="w-full max-w-xs flex justify-between text-[10px] font-mono text-slate-400 px-2 pt-1 border-t border-[#1E2733]/50">
+                <span class="text-emerald-400 font-semibold">0% Truth</span>
+                <span class="text-amber-400 font-semibold">50% Suspicious</span>
+                <span class="text-red-400 font-semibold">100% Deceptive</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Rolling Line Chart (Score Over Time) -->
+          <div class="glass-panel rounded-2xl p-4 border border-[#1E2733] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+                Score Timeline (Rolling 30s)
+              </span>
+              <span class="text-[10px] font-mono text-slate-400">WS /ws/live</span>
+            </div>
+            <div class="h-28 w-full relative">
+              <canvas id="score-timeline" data-api="WS /ws/live"></canvas>
+            </div>
+          </div>
+
+          <!-- Card 3: Live Emotion Bar Chart (8 emotions) -->
+          <div class="glass-panel rounded-2xl p-4 border border-[#1E2733] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                Action Unit & Emotion Spectrum
+              </span>
+              <span class="text-[10px] font-mono text-cyan-400">Dominant: <strong id="dominant-emotion-label" class="text-white">Neutral (76%)</strong></span>
+            </div>
+            <!-- Canvas Bar Chart for 8 emotions -->
+            <div class="h-36 w-full relative">
+              <canvas id="emotion-chart" data-api="WS /ws/live"></canvas>
+            </div>
+          </div>
+
+          <!-- Card 4: Cue Alerts List -->
+          <div class="glass-panel rounded-2xl p-4 border border-[#1E2733] space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse"></span>
+                Micro-Expression Cue Alerts
+              </span>
+              <span class="text-[10px] font-mono text-slate-400">Live Incident Log</span>
+            </div>
+
+            <!-- Scrollable Alerts Container -->
+            <div id="cue-alerts" data-api="WS /ws/live" class="space-y-2 max-h-44 overflow-y-auto pr-1">
+              <!-- Initial Realistic Mock Items -->
+              <div class="cue-item flex items-center justify-between p-2 rounded-xl bg-[#0E141D] border border-[#1E2733] text-xs">
+                <div class="flex items-center space-x-2.5">
+                  <span class="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Moderate Severity"></span>
+                  <div>
+                    <div class="font-medium text-slate-200">Gaze Aversion (Right Upper)</div>
+                    <div class="text-[10px] text-slate-400 font-mono">Cognitive load construction trigger</div>
+                  </div>
+                </div>
+                <span class="text-[10px] font-mono text-slate-400 bg-[#121821] px-1.5 py-0.5 rounded border border-[#1E2733]">00:14</span>
+              </div>
+
+              <div class="cue-item flex items-center justify-between p-2 rounded-xl bg-[#0E141D] border border-[#1E2733] text-xs">
+                <div class="flex items-center space-x-2.5">
+                  <span class="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="High Severity"></span>
+                  <div>
+                    <div class="font-medium text-slate-200">Lip Press & Corner Retraction (AU14)</div>
+                    <div class="text-[10px] text-slate-400 font-mono">Concealed hesitation marker</div>
+                  </div>
+                </div>
+                <span class="text-[10px] font-mono text-slate-400 bg-[#121821] px-1.5 py-0.5 rounded border border-[#1E2733]">00:09</span>
+              </div>
+
+              <div class="cue-item flex items-center justify-between p-2 rounded-xl bg-[#0E141D] border border-[#1E2733] text-xs">
+                <div class="flex items-center space-x-2.5">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" title="Low Severity"></span>
+                  <div>
+                    <div class="font-medium text-slate-200">Bilateral Eyebrow Raise (AU1+2)</div>
+                    <div class="text-[10px] text-slate-400 font-mono">Symmetric authentic surprise</div>
+                  </div>
+                </div>
+                <span class="text-[10px] font-mono text-slate-400 bg-[#121821] px-1.5 py-0.5 rounded border border-[#1E2733]">00:03</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SCREEN 3: UPLOAD ANALYSIS -->
+    <!-- ========================================================================= -->
+    <section id="screen-upload" class="screen-view hidden space-y-6">
+      
+      <!-- Disclaimer Banner (Required for Upload) -->
+      <div id="disclaimer-upload" class="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-200/90 flex items-start space-x-3 text-xs sm:text-sm">
+        <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        <div>
+          <span class="font-semibold text-amber-300">Analysis Disclaimer:</span>
+          <span>Facial analysis gives probabilistic indicators, not proof of lying. Do not use for legal, hiring, or other high-stakes decisions. Media compression artifacts may introduce Action Unit noise.</span>
+        </div>
+      </div>
+
+      <!-- Drag & Drop Zone -->
+      <div class="glass-panel rounded-2xl p-8 border border-[#1E2733] space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-bold text-white tracking-tight">Upload Forensic Media</h2>
+          <span class="text-xs font-mono text-cyan-400">Endpoint: POST /api/analyze/image &amp; /video</span>
+        </div>
+
+        <!-- Dropzone interactive container -->
+        <div id="dropzone" data-api="POST /api/analyze/image" class="border-2 border-dashed border-[#2A3647] hover:border-cyan-400/70 rounded-2xl p-10 text-center cursor-pointer bg-[#0B0F14]/60 hover:bg-[#121821]/80 transition duration-300 space-y-4 group">
+          <input type="file" id="file-input" class="hidden" accept="image/*,video/*" data-api="POST /api/analyze/image">
+          
+          <div class="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+          </div>
+
+          <div class="space-y-1">
+            <p class="text-base font-semibold text-white">Drag and drop interview video or facial image here</p>
+            <p class="text-xs text-slate-400">or click to browse your local filesystem</p>
+          </div>
+
+          <!-- File type & size hint -->
+          <div class="inline-flex items-center gap-2 text-xs font-mono text-slate-400 bg-[#121821] px-4 py-1.5 rounded-full border border-[#1E2733]">
+            <span>Supported: MP4, AVI, MOV, WEBM, JPG, PNG</span>
+            <span class="text-slate-600">&bull;</span>
+            <span class="text-cyan-400">Max size: 150MB</span>
+          </div>
+        </div>
+
+        <!-- Progress Bar Container (Hidden by default, triggered on upload) -->
+        <div id="upload-progress-container" class="hidden space-y-2 pt-2">
+          <div class="flex justify-between text-xs font-mono">
+            <span id="upload-status-text" class="text-slate-300">Extracting Action Units & Frame Meshes...</span>
+            <span id="upload-percentage" class="text-cyan-400 font-bold">45%</span>
+          </div>
+          <div class="w-full h-2.5 bg-[#121821] rounded-full overflow-hidden border border-[#1E2733]">
+            <div id="upload-progress" data-api="POST /api/analyze/video" class="h-full bg-gradient-to-r from-cyan-400 to-violet-500 transition-all duration-300 rounded-full" style="width: 45%;"></div>
+          </div>
+        </div>
+
+        <!-- Sample Test Media Quick Selector (For quick demonstration) -->
+        <div class="flex items-center gap-3 pt-2 text-xs text-slate-400">
+          <span class="font-mono text-[11px]">Or load benchmark sample:</span>
+          <button id="btn-load-sample-interview" class="px-2.5 py-1 rounded bg-[#17202C] hover:bg-[#1E2733] border border-[#2A3647] text-slate-300 hover:text-white transition">
+            Sample Subject 42 (Deceptive Interview)
+          </button>
+          <button id="btn-load-sample-truth" class="px-2.5 py-1 rounded bg-[#17202C] hover:bg-[#1E2733] border border-[#2A3647] text-slate-300 hover:text-white transition">
+            Sample Subject 18 (Truthful Control)
+          </button>
+        </div>
+      </div>
+
+      <!-- Upload Results Section -->
+      <div id="upload-results-section" class="space-y-6">
+        
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-sm bg-violet-400"></span>
+            Post-Analysis Decomposition
+          </h2>
+          <span class="text-xs font-mono text-slate-400 bg-[#121821] px-3 py-1 rounded-lg border border-[#1E2733]">
+            Processed 720 frames @ 60 FPS
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          <!-- Annotated Preview Card (7 cols) -->
+          <div class="lg:col-span-7 glass-panel rounded-2xl border border-[#1E2733] overflow-hidden space-y-3 p-4">
+            <div class="flex items-center justify-between border-b border-[#1E2733] pb-2.5">
+              <span class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                Annotated Facial Telemetry Preview
+              </span>
+              <span class="text-[11px] font-mono text-cyan-400">Frame: <strong id="current-frame-indicator" class="text-white">#248 / 720</strong></span>
+            </div>
+
+            <!-- Annotated Canvas/Preview Viewer -->
+            <div class="relative aspect-video rounded-xl overflow-hidden bg-black border border-[#1E2733] flex items-center justify-center">
+              <canvas id="annotated-preview" data-api="POST /api/analyze/video" class="w-full h-full object-contain" width="640" height="360"></canvas>
+              
+              <!-- Video Scrub Controls Overlay -->
+              <div class="absolute bottom-3 inset-x-4 flex items-center space-x-3 bg-[#0B0F14]/85 backdrop-blur px-3 py-2 rounded-xl border border-[#1E2733]">
+                <button id="btn-scrub-play" class="p-1 text-cyan-400 hover:text-white transition" aria-label="Play or pause frames">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                </button>
+                <input type="range" id="frame-scrubber" min="0" max="720" value="248" class="flex-1 accent-cyan-400 cursor-pointer">
+                <span class="text-[11px] font-mono text-slate-300">00:04.13</span>
+              </div>
+            </div>
+
+            <div class="text-xs text-slate-400 flex items-center justify-between font-mono pt-1">
+              <span>Primary Cue: <strong class="text-amber-400">AU4 Brow Furrow + AU15 Lip Depressor</strong></span>
+              <span>Optical Shift: <strong class="text-slate-200">14.8 px/s</strong></span>
+            </div>
+          </div>
+
+          <!-- Summary Card (5 cols) -->
+          <div class="lg:col-span-5 glass-panel rounded-2xl border border-[#1E2733] p-5 space-y-4">
+            <div class="flex items-center justify-between border-b border-[#1E2733] pb-3">
+              <h3 class="text-sm font-bold text-white uppercase tracking-wider">Executive Summary</h3>
+              <!-- Final Label Badge -->
+              <span id="upload-final-label" data-api="POST /api/analyze/video" class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-amber-950/80 border border-amber-500/50 text-amber-400 tracking-wider">
+                SUSPICIOUS
+              </span>
+            </div>
+
+            <!-- Score Stats Metrics -->
+            <div class="grid grid-cols-2 gap-4">
+              <div class="p-3.5 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-1">
+                <span class="text-[11px] text-slate-400 uppercase font-mono">Average Score</span>
+                <div id="upload-avg-score" data-api="POST /api/analyze/video" class="text-2xl font-extrabold font-mono text-slate-100">
+                  58.4%
+                </div>
+                <span class="text-[10px] text-amber-400/80 font-mono">Elevated Baseline</span>
+              </div>
+
+              <div class="p-3.5 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-1">
+                <span class="text-[11px] text-slate-400 uppercase font-mono">Peak Score</span>
+                <div id="upload-peak-score" data-api="POST /api/analyze/video" class="text-2xl font-extrabold font-mono text-red-400">
+                  82.1%
+                </div>
+                <span class="text-[10px] text-red-400/80 font-mono">At Frame #248 (00:04.1)</span>
+              </div>
+            </div>
+
+            <!-- Top Detected Cues -->
+            <div class="space-y-2">
+              <span class="text-xs font-semibold text-slate-300">Identified Critical Cues:</span>
+              <ul id="upload-top-cues" data-api="POST /api/analyze/video" class="space-y-2 text-xs">
+                <li class="flex items-center justify-between p-2 rounded-xl bg-[#0E141D] border border-[#1E2733]">
+                  <span class="flex items-center gap-2 text-slate-200">
+                    <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                    Micro-expression AU15 (Corner Depressor)
+                  </span>
+                  <span class="font-mono text-slate-400">92ms duration</span>
+                </li>
+                <li class="flex items-center justify-between p-2 rounded-xl bg-[#0E141D] border border-[#1E2733]">
+                  <span class="flex items-center gap-2 text-slate-200">
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                    Gaze aversion coupled with swallow
+                  </span>
+                  <span class="font-mono text-slate-400">3 occurrences</span>
+                </li>
+                <li class="flex items-center justify-between p-2 rounded-xl bg-[#0E141D] border border-[#1E2733]">
+                  <span class="flex items-center gap-2 text-slate-200">
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                    Blink frequency acceleration (+140%)
+                  </span>
+                  <span class="font-mono text-slate-400">High cognitive strain</span>
+                </li>
+              </ul>
+            </div>
+
+            <!-- Save as Official Session Button -->
+            <button id="btn-save-uploaded-session" class="w-full py-2.5 rounded-xl bg-[#17202C] hover:bg-[#1E2733] border border-[#2A3647] hover:border-cyan-500/50 text-cyan-300 font-semibold text-xs transition flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+              <span>Add to Forensic Session History</span>
+            </button>
+
+          </div>
+
+        </div>
+
+        <!-- Per-Frame Timeline Chart (Full Width) -->
+        <div class="glass-panel rounded-2xl p-5 border border-[#1E2733] space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#1E2733] pb-3">
+            <div>
+              <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                Per-Frame Deception Likelihood Timeline
+              </h3>
+              <p class="text-xs text-slate-400">Hover over peaks to inspect specific Action Unit activations and timestamps</p>
+            </div>
+            <div class="flex items-center space-x-3 text-xs font-mono">
+              <span class="flex items-center gap-1.5 text-emerald-400"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>Truthful (&lt;40%)</span>
+              <span class="flex items-center gap-1.5 text-amber-400"><span class="w-2 h-2 rounded-full bg-amber-400"></span>Suspicious (40-70%)</span>
+              <span class="flex items-center gap-1.5 text-red-400"><span class="w-2 h-2 rounded-full bg-red-400"></span>Deceptive (&gt;70%)</span>
+            </div>
+          </div>
+
+          <div class="h-60 w-full relative">
+            <canvas id="frame-timeline" data-api="POST /api/analyze/video"></canvas>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SCREEN 4: HISTORY -->
+    <!-- ========================================================================= -->
+    <section id="screen-history" class="screen-view hidden space-y-6">
+      
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <span class="w-3 h-3 rounded-md bg-emerald-400"></span>
+            Forensic Session Audit Trail
+          </h2>
+          <p class="text-sm text-slate-400">Archived biometric sessions, micro-expression telemetry, and assessment logs</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button id="btn-export-all-history" class="px-3.5 py-2 rounded-xl bg-[#17202C] hover:bg-[#1E2733] border border-[#2A3647] text-slate-200 text-xs font-medium transition flex items-center gap-2">
+            <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span>Export JSON</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Search & Filter Controls Row -->
+      <div class="glass-panel rounded-2xl p-4 border border-[#1E2733] flex flex-col md:flex-row items-stretch md:items-center gap-4 justify-between">
+        <!-- Search Input -->
+        <div class="relative flex-1">
+          <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          </div>
+          <input type="text" id="search-sessions" placeholder="Search by session ID, subject, or date..." class="w-full pl-10 pr-4 py-2 rounded-xl bg-[#0B0F14] border border-[#1E2733] focus:border-cyan-400 focus:outline-none text-sm text-white placeholder-slate-500">
+        </div>
+
+        <!-- Filter Row -->
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Filter by Source -->
+          <div class="flex items-center space-x-2 text-xs font-mono text-slate-400">
+            <span>Source:</span>
+            <select id="filter-source" class="bg-[#0B0F14] border border-[#1E2733] rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-400">
+              <option value="all">All Sources</option>
+              <option value="live">Live Stream</option>
+              <option value="video">Uploaded Video</option>
+              <option value="image">Uploaded Image</option>
+            </select>
+          </div>
+
+          <!-- Filter by Label -->
+          <div class="flex items-center space-x-2 text-xs font-mono text-slate-400">
+            <span>Label:</span>
+            <select id="filter-label" class="bg-[#0B0F14] border border-[#1E2733] rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-400">
+              <option value="all">All Statuses</option>
+              <option value="Truthful">Truthful</option>
+              <option value="Suspicious">Suspicious</option>
+              <option value="Likely Deceptive">Likely Deceptive</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- History Table Container -->
+      <div class="glass-panel rounded-2xl border border-[#1E2733] overflow-hidden shadow-xl">
+        <div class="overflow-x-auto">
+          <table id="sessions-table" data-api="GET /api/sessions" class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="border-b border-[#1E2733] bg-[#0E141D] text-[11px] font-mono uppercase tracking-wider text-slate-400">
+                <th class="py-3.5 px-4 font-semibold">Date &amp; Time</th>
+                <th class="py-3.5 px-4 font-semibold">Source</th>
+                <th class="py-3.5 px-4 font-semibold">Duration</th>
+                <th class="py-3.5 px-4 font-semibold">Average Score</th>
+                <th class="py-3.5 px-4 font-semibold">Assessment</th>
+                <th class="py-3.5 px-4 font-semibold text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sessions-tbody" class="divide-y divide-[#1E2733] font-mono text-xs">
+              <!-- Populated dynamically via JS from realistic sessions dataset -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Empty State (Hidden if sessions exist) -->
+        <div id="history-empty-state" class="hidden py-16 text-center space-y-3">
+          <div class="w-12 h-12 mx-auto rounded-xl bg-[#121821] border border-[#1E2733] flex items-center justify-center text-slate-500">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
+          </div>
+          <p class="text-sm font-semibold text-slate-300">No sessions match your filter</p>
+          <p class="text-xs text-slate-500">Run a Live Detection or analyze an uploaded video to generate records.</p>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SCREEN 5: MODEL & METRICS -->
+    <!-- ========================================================================= -->
+    <section id="screen-metrics" class="screen-view hidden space-y-6">
+      
+      <!-- Warning Banner: Model Not Trained (Hidden by default, requested in prompt) -->
+      <div id="model-banner" class="hidden p-4 rounded-2xl bg-amber-950/70 border border-amber-500/50 text-amber-200 flex items-start justify-between space-x-3 text-xs sm:text-sm shadow-lg" data-api="GET /api/model-info">
+        <div class="flex items-start space-x-3">
+          <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          <div>
+            <span class="font-bold text-amber-300">Model Notice:</span>
+            <span>Micro-expression neural backbone weights are uncalibrated or undergoing re-training. Predictions are currently operating in simulation baseline mode.</span>
+          </div>
+        </div>
+        <button id="btn-dismiss-model-banner" class="text-amber-400 hover:text-white text-xs font-semibold px-2 py-1 rounded bg-amber-900/60">
+          Dismiss
+        </button>
+      </div>
+
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <span class="w-3 h-3 rounded-md bg-cyan-400"></span>
+            Model Architecture &amp; Evaluation Metrics
+          </h2>
+          <p class="text-sm text-slate-400 font-normal">Validation benchmarks on synthesized CASME II, SAMM, and micro-FACS datasets</p>
+        </div>
+        <!-- Toggle button to test model banner -->
+        <button id="btn-toggle-model-banner" class="text-xs font-mono px-3 py-1.5 rounded-xl bg-[#121821] hover:bg-[#17202C] border border-[#1E2733] text-slate-400 hover:text-white transition">
+          Toggle "Model Not Trained" Banner
+        </button>
+      </div>
+
+      <!-- 4 Metric Cards: Accuracy, Precision, Recall, F1 -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        
+        <!-- Accuracy Card -->
+        <div class="glass-panel rounded-2xl p-5 border border-[#1E2733] space-y-2">
+          <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span>Accuracy</span>
+            <span class="text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">+2.4% vs v2.3</span>
+          </div>
+          <div id="metric-accuracy" data-api="GET /api/model-info" class="text-3xl sm:text-4xl font-extrabold font-mono text-white tracking-tight">
+            88.6%
+          </div>
+          <p class="text-xs text-slate-400">Overall correct classification across 3-class distribution</p>
+        </div>
+
+        <!-- Precision Card -->
+        <div class="glass-panel rounded-2xl p-5 border border-[#1E2733] space-y-2">
+          <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span>Precision</span>
+            <span class="text-violet-400 bg-violet-950/60 px-2 py-0.5 rounded border border-violet-800/40">Deception</span>
+          </div>
+          <div id="metric-precision" data-api="GET /api/model-info" class="text-3xl sm:text-4xl font-extrabold font-mono text-white tracking-tight">
+            85.2%
+          </div>
+          <p class="text-xs text-slate-400">Low false-alarm rate on suppressed involuntary micro-movements</p>
+        </div>
+
+        <!-- Recall Card -->
+        <div class="glass-panel rounded-2xl p-5 border border-[#1E2733] space-y-2">
+          <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span>Recall</span>
+            <span class="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">Sensitivity</span>
+          </div>
+          <div id="metric-recall" data-api="GET /api/model-info" class="text-3xl sm:text-4xl font-extrabold font-mono text-white tracking-tight">
+            87.9%
+          </div>
+          <p class="text-xs text-slate-400">High sensitivity capturing rapid 40ms Action Unit triggers</p>
+        </div>
+
+        <!-- F1 Score Card -->
+        <div class="glass-panel rounded-2xl p-5 border border-[#1E2733] space-y-2">
+          <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span>F1 Score</span>
+            <span class="text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">Harmonic Mean</span>
+          </div>
+          <div id="metric-f1" data-api="GET /api/model-info" class="text-3xl sm:text-4xl font-extrabold font-mono text-white tracking-tight">
+            86.5%
+          </div>
+          <p class="text-xs text-slate-400">Balanced harmonic performance across asymmetric class distributions</p>
+        </div>
+
+      </div>
+
+      <!-- Mid Section: Confusion Matrix & Class Distribution Chart -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Confusion Matrix Placeholder / Heatmap Grid (6 cols) -->
+        <div class="lg:col-span-6 glass-panel rounded-2xl p-6 border border-[#1E2733] space-y-4">
+          <div class="flex items-center justify-between border-b border-[#1E2733] pb-3">
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+              Confusion Matrix Heatmap
+            </h3>
+            <span class="text-xs font-mono text-slate-400">N = 1,420 Test Clips</span>
+          </div>
+
+          <!-- Confusion Matrix Visualization Container -->
+          <div id="confusion-matrix" data-api="GET /api/model-info" class="p-4 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-3 font-mono text-xs">
+            <div class="grid grid-cols-4 gap-2 text-center text-[11px] text-slate-400 font-semibold pb-1">
+              <span>Actual \ Pred</span>
+              <span class="text-emerald-400">Truth</span>
+              <span class="text-amber-400">Suspicious</span>
+              <span class="text-red-400">Deceptive</span>
+            </div>
+
+            <!-- Row 1: Actual Truthful -->
+            <div class="grid grid-cols-4 gap-2 items-center text-center">
+              <span class="text-left font-semibold text-emerald-300">Truthful</span>
+              <div class="py-3 rounded-lg bg-emerald-950/80 border border-emerald-500/50 text-white font-bold text-sm shadow-inner" title="True Negative: 91.2%">
+                528 <span class="block text-[10px] text-emerald-400 font-normal">91.2%</span>
+              </div>
+              <div class="py-3 rounded-lg bg-[#17202C] border border-[#1E2733] text-slate-300">
+                39 <span class="block text-[10px] text-slate-500 font-normal">6.7%</span>
+              </div>
+              <div class="py-3 rounded-lg bg-[#17202C] border border-[#1E2733] text-slate-400">
+                12 <span class="block text-[10px] text-slate-500 font-normal">2.1%</span>
+              </div>
+            </div>
+
+            <!-- Row 2: Actual Suspicious -->
+            <div class="grid grid-cols-4 gap-2 items-center text-center">
+              <span class="text-left font-semibold text-amber-300">Suspicious</span>
+              <div class="py-3 rounded-lg bg-[#17202C] border border-[#1E2733] text-slate-300">
+                32 <span class="block text-[10px] text-slate-500 font-normal">7.6%</span>
+              </div>
+              <div class="py-3 rounded-lg bg-amber-950/70 border border-amber-500/50 text-white font-bold text-sm shadow-inner">
+                358 <span class="block text-[10px] text-amber-300 font-normal">85.4%</span>
+              </div>
+              <div class="py-3 rounded-lg bg-[#17202C] border border-[#1E2733] text-slate-300">
+                29 <span class="block text-[10px] text-slate-500 font-normal">7.0%</span>
+              </div>
+            </div>
+
+            <!-- Row 3: Actual Deceptive -->
+            <div class="grid grid-cols-4 gap-2 items-center text-center">
+              <span class="text-left font-semibold text-red-300">Deceptive</span>
+              <div class="py-3 rounded-lg bg-[#17202C] border border-[#1E2733] text-slate-400">
+                14 <span class="block text-[10px] text-slate-500 font-normal">3.3%</span>
+              </div>
+              <div class="py-3 rounded-lg bg-[#17202C] border border-[#1E2733] text-slate-300">
+                34 <span class="block text-[10px] text-slate-500 font-normal">8.1%</span>
+              </div>
+              <div class="py-3 rounded-lg bg-red-950/80 border border-red-500/50 text-white font-bold text-sm shadow-inner" title="True Positive: 88.6%">
+                374 <span class="block text-[10px] text-red-400 font-normal">88.6%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="text-[11px] text-slate-400 font-mono flex items-center justify-between pt-1">
+            <span>Overall Macro ROC-AUC: <strong class="text-cyan-400">0.932</strong></span>
+            <span>False Discovery Rate: <strong class="text-slate-300">7.8%</strong></span>
+          </div>
+        </div>
+
+        <!-- Class Distribution Bar Chart (6 cols) -->
+        <div class="lg:col-span-6 glass-panel rounded-2xl p-6 border border-[#1E2733] space-y-4">
+          <div class="flex items-center justify-between border-b border-[#1E2733] pb-3">
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-violet-400"></span>
+              Dataset Class Distribution
+            </h3>
+            <span class="text-xs font-mono text-slate-400">FACS Action Unit Samples</span>
+          </div>
+
+          <div class="h-64 w-full relative">
+            <canvas id="class-distribution-chart" data-api="GET /api/model-info"></canvas>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2 text-center text-xs font-mono pt-1">
+            <div class="p-2 rounded-lg bg-[#0E141D] border border-[#1E2733]">
+              <div class="text-emerald-400 font-bold">579 clips</div>
+              <div class="text-[10px] text-slate-400">Truthful (40.8%)</div>
+            </div>
+            <div class="p-2 rounded-lg bg-[#0E141D] border border-[#1E2733]">
+              <div class="text-amber-400 font-bold">419 clips</div>
+              <div class="text-[10px] text-slate-400">Suspicious (29.5%)</div>
+            </div>
+            <div class="p-2 rounded-lg bg-[#0E141D] border border-[#1E2733]">
+              <div class="text-red-400 font-bold">422 clips</div>
+              <div class="text-[10px] text-slate-400">Deceptive (29.7%)</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Additional Technical Specs Panel -->
+      <div class="glass-panel rounded-2xl p-6 border border-[#1E2733] space-y-4">
+        <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+          <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+          Inference Architecture &amp; Runtime Specifications
+        </h3>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono">
+          <div class="p-3 rounded-xl bg-[#0B0F14] border border-[#1E2733]">
+            <span class="text-slate-400 block">Spatial Feature Extractor</span>
+            <span class="font-bold text-white text-sm">ResNet-50 + ViT Hybrid</span>
+          </div>
+          <div class="p-3 rounded-xl bg-[#0B0F14] border border-[#1E2733]">
+            <span class="text-slate-400 block">Temporal Attention Window</span>
+            <span class="font-bold text-white text-sm">16 frames @ 250ms stride</span>
+          </div>
+          <div class="p-3 rounded-xl bg-[#0B0F14] border border-[#1E2733]">
+            <span class="text-slate-400 block">Median Inference Latency</span>
+            <span class="font-bold text-cyan-400 text-sm">18.4 ms (TensorRT)</span>
+          </div>
+          <div class="p-3 rounded-xl bg-[#0B0F14] border border-[#1E2733]">
+            <span class="text-slate-400 block">Target Loss Function</span>
+            <span class="font-bold text-violet-400 text-sm">FACS Multilabel Focal Loss</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================================================= -->
+    <!-- SCREEN 6: ABOUT -->
+    <!-- ========================================================================= -->
+    <section id="screen-about" class="screen-view hidden space-y-12 py-2">
+      
+      <!-- Header -->
+      <div class="max-w-3xl space-y-3">
+        <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-800/50 text-cyan-300 text-xs font-semibold">
+          <span>Comprehensive Scientific Review</span>
+        </div>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+          The Science of Deception Detection &amp; Micro-Expressions
+        </h2>
+        <p class="text-slate-400 text-base leading-relaxed">
+          Understanding the neurobiological mechanisms separating voluntary deception from involuntary motor disclosures.
+        </p>
+      </div>
+
+      <!-- Six Lie Detection Methods Grid (Icon Cards) -->
+      <div class="space-y-4">
+        <div class="flex items-center justify-between border-b border-[#1E2733] pb-3">
+          <h3 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-sm bg-cyan-400"></span>
+            Comparison of 6 Classical &amp; Modern Lie Detection Modalities
+          </h3>
+          <span class="text-xs font-mono text-slate-400">Empirical Landscape</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          
+          <!-- Method 1: Polygraph -->
+          <div class="glass-panel rounded-2xl p-6 border border-[#1E2733] hover:border-cyan-500/40 transition duration-300 space-y-3">
+            <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+              <!-- Pulse Waveform Icon -->
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"></path></svg>
+            </div>
+            <h4 class="text-base font-bold text-white">1. Polygraph (Physiological ANS)</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Monitors autonomic nervous system arousal via galvanic skin response (GSR), thoracic respiration rates, and cardiovascular blood pressure. Highly susceptible to countermeasures and generalized anxiety.
+            </p>
+            <div class="text-[11px] font-mono text-cyan-400/80">Reliability: 60 - 75% | High subjectivity</div>
+          </div>
+
+          <!-- Method 2: Narco Analysis -->
+          <div class="glass-panel rounded-2xl p-6 border border-[#1E2733] hover:border-cyan-500/40 transition duration-300 space-y-3">
+            <div class="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
+              <!-- Chemical Icon -->
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+            </div>
+            <h4 class="text-base font-bold text-white">2. Narco Analysis (Barbiturate)</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Intravenous administration of sodium pentothal or amytal to induce a hypnotic, disinhibited twilight state. Severe ethical concerns, potential false memory fabrication, and legally restricted worldwide.
+            </p>
+            <div class="text-[11px] font-mono text-red-400/80">Ethical status: Inadmissible / Invasive</div>
+          </div>
+
+          <!-- Method 3: Voice Stress Analysis -->
+          <div class="glass-panel rounded-2xl p-6 border border-[#1E2733] hover:border-cyan-500/40 transition duration-300 space-y-3">
+            <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+              <!-- Audio Mic Wave Icon -->
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+            </div>
+            <h4 class="text-base font-bold text-white">3. Voice Stress Analysis (VSA)</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Measures 8-14 Hz physiological micro-tremors in vocal cords caused by sympathetic innervation during psychological conflict. Debated scientific validity due to room acoustics and emotional volatility.
+            </p>
+            <div class="text-[11px] font-mono text-amber-400/80">Reliability: 50 - 62% | Ambient sensitivity</div>
+          </div>
+
+          <!-- Method 4: Neuroimaging (fMRI & EEG) -->
+          <div class="glass-panel rounded-2xl p-6 border border-[#1E2733] hover:border-cyan-500/40 transition duration-300 space-y-3">
+            <div class="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
+              <!-- Brain Icon -->
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            </div>
+            <h4 class="text-base font-bold text-white">4. Neuroimaging (fMRI &amp; EEG P300)</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Detects prefrontal cortex blood oxygenation (BOLD) signals and P300 brainwaves in "Brain Fingerprinting" protocols when encountering familiar concealed crime probes. Ultra-high precision but requires massive stationary machinery.
+            </p>
+            <div class="text-[11px] font-mono text-violet-400/80">Reliability: 85 - 94% | Laboratory bound</div>
+          </div>
+
+          <!-- Method 5: Statement Analysis -->
+          <div class="glass-panel rounded-2xl p-6 border border-[#1E2733] hover:border-cyan-500/40 transition duration-300 space-y-3">
+            <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+              <!-- Document / Linguistics Icon -->
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            </div>
+            <h4 class="text-base font-bold text-white">5. Statement Analysis (CBCA / RM)</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Criteria-Based Content Analysis (CBCA) and Reality Monitoring parse linguistic markers, unstructured memory details, passive voice usage, and cognitive omissions in verbatim interrogation transcripts.
+            </p>
+            <div class="text-[11px] font-mono text-cyan-400/80">Reliability: 65 - 72% | Linguistic bias</div>
+          </div>
+
+          <!-- Method 6: Behavioral Analysis -->
+          <div class="glass-panel rounded-2xl p-6 border border-[#1E2733] hover:border-cyan-500/40 transition duration-300 space-y-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <!-- Eye / Micro-Gesture Icon -->
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path></svg>
+            </div>
+            <h4 class="text-base font-bold text-white">6. Behavioral &amp; Micro-Expressions (TruthLens)</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Non-invasive high-frame optical analysis measuring Facial Action Coding System (FACS) involuntary Action Units, micro-tremors, and eye saccades occurring under sub-second limbic reflex triggers.
+            </p>
+            <div class="text-[11px] font-mono text-emerald-400/80">Reliability: 82 - 89% | Non-invasive &amp; Real-time</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Micro-expressions Explainer (Detailed Section) -->
+      <div class="glass-panel rounded-2xl p-8 border border-[#1E2733] space-y-6">
+        <div class="border-b border-[#1E2733] pb-4">
+          <h3 class="text-xl font-bold text-white tracking-tight">The Neurobiology of Micro-Expressions</h3>
+          <p class="text-xs text-slate-400">Why the human face cannot fully conceal genuine emotional impulses</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm text-slate-300 leading-relaxed">
+          <div class="space-y-4">
+            <div class="p-4 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-2">
+              <h5 class="font-bold text-white flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                Fraction-of-a-Second Temporal Window
+              </h5>
+              <p class="text-xs text-slate-400">
+                Micro-expressions are brief, tiny facial muscle movements lasting merely a fraction of a second—typically between <strong>40 milliseconds (1/25th s) and 200 milliseconds (1/5th s)</strong>. Unlike macro-expressions which persist for 0.5 to 4 seconds, micro-expressions flash involuntarily when an individual attempts to repress or falsify an emotional state.
+              </p>
+            </div>
+
+            <div class="p-4 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-2">
+              <h5 class="font-bold text-white flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-violet-400"></span>
+                The Limbic System vs. Neocortex Dual Motor Pathway
+              </h5>
+              <p class="text-xs text-slate-400">
+                Facial musculature is governed by two distinct neural motor tracts:
+              </p>
+              <ul class="text-xs text-slate-400 list-disc list-inside space-y-1 pl-1">
+                <li><strong>Subcortical / Limbic pathway:</strong> Mediates spontaneous, genuine emotion with ultra-fast involuntary signal transmission.</li>
+                <li><strong>Cortical / Pyramidal pathway:</strong> Originates in the motor cortex for deliberate, conscious expression manipulation.</li>
+              </ul>
+              <p class="text-xs text-slate-400">
+                When a deception is fabricated, the limbic system fires first. By the time the conscious cortex sends inhibiting signals, the subtle Action Unit has already twitched across the face.
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <div class="p-4 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-2">
+              <h5 class="font-bold text-white flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                FACS Action Units Monitored in TruthLens
+              </h5>
+              <p class="text-xs text-slate-400">
+                TruthLens decomposes facial geometry into the Paul Ekman Facial Action Coding System:
+              </p>
+              <div class="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 pt-1">
+                <span class="p-1.5 rounded bg-[#121821] border border-[#1E2733]">AU1: Inner Brow Raiser</span>
+                <span class="p-1.5 rounded bg-[#121821] border border-[#1E2733]">AU4: Brow Lowerer</span>
+                <span class="p-1.5 rounded bg-[#121821] border border-[#1E2733]">AU12: Lip Corner Puller</span>
+                <span class="p-1.5 rounded bg-[#121821] border border-[#1E2733]">AU14: Dimpler (Contempt)</span>
+                <span class="p-1.5 rounded bg-[#121821] border border-[#1E2733]">AU15: Lip Corner Depressor</span>
+                <span class="p-1.5 rounded bg-[#121821] border border-[#1E2733]">AU45: Blink Cadence Shift</span>
+              </div>
+            </div>
+
+            <div class="p-4 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-2">
+              <h5 class="font-bold text-white flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                Computer Vision vs. Naked Human Eye
+              </h5>
+              <p class="text-xs text-slate-400">
+                Untrained human interviewers detect micro-expressions with less than <strong>54% accuracy</strong> (chance level). Specialized forensic psychologists achieve ~70%. TruthLens utilizes 60 FPS sub-pixel optical flow and landmark differential vectors to detect micro-movements invisible to the human eye.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dataset Note (Dedicated Requirement) -->
+      <div class="glass-panel rounded-2xl p-6 border border-[#1E2733] space-y-3">
+        <div class="flex items-center space-x-2.5 text-cyan-400">
+          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+          <h4 class="text-base font-bold text-white">Dataset Architecture &amp; Benchmark Origin</h4>
+        </div>
+        <p class="text-xs text-slate-300 leading-relaxed">
+          <strong>Important Research Note:</strong> No single, complete, public universal micro-expression lie detection dataset currently exists in the open scientific domain due to stringent ethical, legal, and privacy restrictions surrounding authentic interrogation recordings.
+        </p>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          To address this limitation, the TruthLens platform was engineered using a curated, dedicated micro-expression image and video benchmark synthesized from the leading scientific corpuses: <strong>CASME II</strong> (Chinese Academy of Sciences Micro-expression dataset), <strong>SAMM</strong> (Spontaneous Actions and Micro-Movements), and specialized high-speed FACS calibration clips recorded at 100-200 FPS.
+        </p>
+      </div>
+
+      <!-- Limitations Section (Dedicated Requirement) -->
+      <div class="glass-panel rounded-2xl p-6 border border-red-500/30 bg-red-950/10 space-y-4">
+        <div class="flex items-center space-x-2.5 text-red-400">
+          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          <h4 class="text-base font-bold text-white">Scientific Limitations &amp; Ethical Constraints</h4>
+        </div>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-slate-400">
+          <div class="p-3 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-1">
+            <span class="font-bold text-slate-200 block">Baseline Variability</span>
+            <span>Social anxiety, ADHD, neurodivergence, or high caffeine intake naturally induce facial tremors that mimic cognitive strain.</span>
+          </div>
+          <div class="p-3 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-1">
+            <span class="font-bold text-slate-200 block">Environmental Lighting</span>
+            <span>Low-light shadows or rapid camera head motion introduce landmark jitter that can artificially spike Action Unit thresholds.</span>
+          </div>
+          <div class="p-3 rounded-xl bg-[#0B0F14] border border-[#1E2733] space-y-1">
+            <span class="font-bold text-slate-200 block">Non-Judicial Evidentiary</span>
+            <span>Probabilistic scores should never serve as legal evidence or sole determinants for interrogation, employment, or academic decisions.</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- SESSION DETAIL SLIDE-OUT DRAWER (FOR HISTORY DRILL-DOWN) -->
+  <!-- ========================================================================= -->
+  <div id="session-detail-drawer" data-api="GET /api/sessions/{id}" class="fixed inset-0 z-50 pointer-events-none overflow-hidden" aria-labelledby="drawer-title" role="dialog" aria-modal="true">
+    <!-- Backdrop Overlay -->
+    <div id="drawer-backdrop" class="drawer-backdrop absolute inset-0 bg-black/70 backdrop-blur-sm opacity-0 transition-opacity duration-300 pointer-events-auto"></div>
+
+    <div class="fixed inset-y-0 right-0 max-w-full flex pl-10 pointer-events-auto">
+      <div id="drawer-panel" class="drawer-panel w-screen max-w-md bg-[#0B0F14] border-l border-[#1E2733] p-6 shadow-2xl flex flex-col justify-between overflow-y-auto transform translate-x-full transition-transform duration-300">
+        
+        <div class="space-y-6">
+          <!-- Drawer Header -->
+          <div class="flex items-center justify-between border-b border-[#1E2733] pb-4">
+            <div>
+              <span id="drawer-session-id" class="text-xs font-mono text-cyan-400">SES-84920</span>
+              <h3 id="drawer-title" class="text-lg font-bold text-white">Session Telemetry Drilldown</h3>
+            </div>
+            <button id="btn-close-drawer" class="p-2 text-slate-400 hover:text-white rounded-lg bg-[#121821] border border-[#1E2733]" aria-label="Close drawer">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+          </div>
+
+          <!-- Metadata Badges -->
+          <div class="flex flex-wrap items-center gap-2">
+            <span id="drawer-badge-source" class="px-2.5 py-0.5 rounded-full text-xs font-mono bg-[#17202C] border border-[#1E2733] text-slate-300">Live Camera</span>
+            <span id="drawer-badge-label" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-950/80 border border-amber-500/50 text-amber-400">Suspicious</span>
+            <span id="drawer-timestamp" class="text-xs font-mono text-slate-400 ml-auto">2026-10-19 22:15</span>
+          </div>
+
+          <!-- Metrics summary grid -->
+          <div class="grid grid-cols-2 gap-3">
+            <div class="p-3 rounded-xl bg-[#121821] border border-[#1E2733]">
+              <span class="text-[10px] text-slate-400 uppercase font-mono block">Average Deception</span>
+              <span id="drawer-avg-score" class="text-xl font-bold font-mono text-white">64.2%</span>
+            </div>
+            <div class="p-3 rounded-xl bg-[#121821] border border-[#1E2733]">
+              <span class="text-[10px] text-slate-400 uppercase font-mono block">Duration</span>
+              <span id="drawer-duration" class="text-xl font-bold font-mono text-cyan-400">01:42</span>
+            </div>
+          </div>
+
+          <!-- Mini Timeline Graph in Drawer -->
+          <div class="space-y-2">
+            <span class="text-xs font-mono text-slate-300">Deception Score Trajectory:</span>
+            <div class="h-32 w-full bg-[#121821] rounded-xl p-2 border border-[#1E2733]">
+              <canvas id="drawer-timeline-chart"></canvas>
+            </div>
+          </div>
+
+          <!-- Cue Incident Log -->
+          <div class="space-y-2">
+            <span class="text-xs font-mono text-slate-300">Action Unit Incident Log:</span>
+            <div id="drawer-cue-list" class="space-y-2 text-xs font-mono max-h-48 overflow-y-auto pr-1">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Drawer Footer Controls -->
+        <div class="border-t border-[#1E2733] pt-4 mt-6 flex items-center justify-between gap-3">
+          <button id="drawer-delete-btn" data-api="DELETE /api/sessions/{id}" class="px-4 py-2 rounded-xl bg-red-950/60 hover:bg-red-900 border border-red-500/40 text-red-300 text-xs font-semibold transition flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            <span>Delete Session</span>
+          </button>
+
+          <button id="drawer-export-btn" class="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 text-slate-950 text-xs font-bold transition flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span>Export Report</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-[#1E2733] bg-[#080B0F] py-6 z-10 text-xs text-slate-500">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-2 font-mono">
+        <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+        <span class="text-slate-300 font-semibold">TruthLens AI</span>
+        <span>&bull;</span>
+        <span>Facial Micro-Expression Biometric Analytics</span>
+      </div>
+      <div class="flex items-center space-x-4 font-mono text-[11px]">
+        <span>Endpoints: FastAPI REST &amp; WebSocket</span>
+        <span>&bull;</span>
+        <span class="text-cyan-400">Client Simulation Mode Active</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Application Logic JS -->
+  <script src="app.js"></script>
+</body>
+</html>

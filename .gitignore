@@ -1,0 +1,80 @@
+# =============================================
+# TruthLens — .gitignore
+# =============================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.so
+*.dylib
+.Python
+
+# --- Virtual Environments ---
+venv/
+env/
+.venv/
+.env/
+
+# --- Environment Variables ---
+.env
+*.env.local
+
+# --- ML Dataset (too large for git — 35k images) ---
+ml/dataset/train/
+ml/dataset/test/
+ml/dataset/processed/
+ml/dataset/raw/
+ml/dataset/*.csv
+
+# --- Trained Model Weights (large binary) ---
+ml/saved_models/*.pt
+ml/saved_models/*.pth
+ml/saved_models/*.h5
+ml/saved_models/*.onnx
+# Keep evaluation results and confusion matrix
+!ml/saved_models/evaluation_metrics.json
+!ml/saved_models/classes.json
+!ml/saved_models/confusion_matrix.png
+
+# --- Database ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Uploads ---
+uploads/
+
+# --- Node / Frontend ---
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- IDE / Editor ---
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Pytest / Testing ---
+.pytest_cache/
+htmlcov/
+.coverage
+tests/__pycache__/
+tests/*.pyc
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Logs ---
+*.log
+logs/
