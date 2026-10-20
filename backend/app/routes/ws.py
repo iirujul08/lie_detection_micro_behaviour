@@ -102,6 +102,11 @@ async def live_websocket_endpoint(websocket: WebSocket):
 
             # 1. MediaPipe FaceMesh (single reusable singleton instance)
             det_result = face_detector.process_frame(frame)
+            if det_result:
+                print(f"[TruthLens LIVE] Face DETECTED! Landmarks count: {len(det_result['landmarks'])}")
+            else:
+                cv2.imwrite("uploads/last_failed_frame.jpg", frame)
+                print(f"[TruthLens LIVE] Face NOT detected on frame {frame.shape}. Saved to uploads/last_failed_frame.jpg")
 
             if not det_result:
                 proc_ms = round((time.perf_counter() - t0) * 1000, 1)

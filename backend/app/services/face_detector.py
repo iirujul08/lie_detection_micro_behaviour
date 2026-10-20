@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any, Tuple
 class FaceDetector:
     def __init__(self, max_num_faces: int = 1, min_detection_confidence: float = 0.25, min_tracking_confidence: float = 0.25):
         self.mp_face_mesh = mp.solutions.face_mesh
+        # Stream tracker (3-4ms per frame)
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             static_image_mode=False,
             max_num_faces=max_num_faces,
@@ -13,12 +14,22 @@ class FaceDetector:
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence
         )
+        # Static detector fallback (runs if stream tracker loses lock)
+        self.face_mesh_static = self.mp_face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=max_num_faces,
+            refine_landmarks=True,
+            min_detection_confidence=min_detection_confidence
+        )
         self.clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
 
     def process_frame(self, image_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
         """
         Process a BGR image frame and return landmark points, bounding box, and pose.
-        Includes adaptive contrast compensation (CLAHE) for backlit or shadowed faces.
+        Multi-tier detection:
+        1. Fast streaming tracker
+        2. Static image detector fallback
+        3. CLAHE dynamic range compensation for backlit/shadowed webcam video
         """
         if image_bgr is None or image_bgr.size == 0:
             return None
@@ -26,9 +37,15 @@ class FaceDetector:
         h, w = image_bgr.shape[:2]
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         image_rgb.flags.writeable = False
+
+        # Pass 1: Stream tracker
         results = self.face_mesh.process(image_rgb)
 
-        # Pass 2: Adaptive CLAHE contrast enhancement for backlit or shadowed webcam conditions
+        # Pass 2: Static detector fallback if tracking dropped
+        if not results or not results.multi_face_landmarks:
+            results = self.face_mesh_static.process(image_rgb)
+
+        # Pass 3: Adaptive CLAHE contrast enhancement for backlit or shadowed webcam conditions
         if not results or not results.multi_face_landmarks:
             lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
             l_chan, a_chan, b_chan = cv2.split(lab)
@@ -36,7 +53,7 @@ class FaceDetector:
             enhanced_bgr = cv2.cvtColor(cv2.merge((l_enhanced, a_chan, b_chan)), cv2.COLOR_LAB2BGR)
             enhanced_rgb = cv2.cvtColor(enhanced_bgr, cv2.COLOR_BGR2RGB)
             enhanced_rgb.flags.writeable = False
-            results = self.face_mesh.process(enhanced_rgb)
+            results = self.face_mesh_static.process(enhanced_rgb)
 
         if not results or not results.multi_face_landmarks:
             return None
