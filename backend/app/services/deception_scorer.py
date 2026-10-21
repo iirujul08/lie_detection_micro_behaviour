@@ -92,17 +92,21 @@ class DeceptionScorer:
         nose_comp = au_features.get("nose_compress", 0.28)
 
         # 1. AU1+AU2+AU4+AU5+AU20: Fear / High Autonomic Distress
-        # Corrugator supercilii (inner brow knit <= 0.265) + Frontalis medial (brow raise >= 0.26) + Eye widening (EAR >= 0.35)
-        # AND AU20 lip stretcher / mouth tension (mouth_w >= 0.54 or lip_apt >= 0.03).
-        # Resting neutral faces have relaxed closed mouths without lateral stretch.
+        # Pattern A (Wide-eyed panic): Corrugator knit + brow raise + eye widening + lip stretch
         fear_mouth = (mouth_w >= 0.54 or lip_apt >= 0.03)
         fear_eyes_brows = (
             (brow_dist >= 0.26 and inner_brow <= 0.265 and ear >= 0.35) or
             (brow_dist >= 0.28 and ear >= 0.40 and inner_brow <= 0.28)
         )
-        is_fear = fear_mouth and fear_eyes_brows
+        # Pattern B (Terror scream / acute distress): Gaping mouth scream + eyes clamped shut or scream gasp
+        is_panic_scream = (lip_apt >= 0.15 and ear <= 0.16) or (lip_apt >= 0.22 and mouth_w >= 0.50 and not (mouth_w >= 0.64 and ear >= 0.20))
+
+        is_fear = (fear_mouth and fear_eyes_brows) or is_panic_scream
         if is_fear:
-            fear = min(96.0, 60.0 + (ear - 0.34) * 120.0 + (0.28 - inner_brow) * 200.0)
+            if is_panic_scream:
+                fear = min(96.0, 75.0 + (lip_apt - 0.15) * 120.0)
+            else:
+                fear = min(96.0, 60.0 + (ear - 0.34) * 120.0 + (0.28 - inner_brow) * 200.0)
         else:
             fear = 2.0
 
@@ -169,7 +173,8 @@ class DeceptionScorer:
             (brow_dist >= 0.26 and inner_brow <= 0.265 and ear >= 0.35) or
             (brow_dist >= 0.28 and ear >= 0.40 and inner_brow <= 0.28)
         )
-        is_fear_sig = (fear_mouth and fear_eyes_brows) or (emotions.get("fear", 0.0) >= 40.0)
+        is_panic_scream = (lip_apt >= 0.15 and ear <= 0.16) or (lip_apt >= 0.22 and mouth_w >= 0.50 and not (mouth_w >= 0.64 and ear >= 0.20))
+        is_fear_sig = (fear_mouth and fear_eyes_brows) or is_panic_scream or (emotions.get("fear", 0.0) >= 40.0)
 
         is_happy_sig = (((mouth_w >= 0.62) or (mouth_w >= 0.58 and lip_apt >= 0.05)) and lip_drop < 0.05 and mouth_asym < 0.14) or \
                        (emotions.get("happy", 0.0) >= 40.0 and not is_fear_sig)
@@ -195,24 +200,38 @@ class DeceptionScorer:
             fear_val = emotions.get("fear", 75.0)
             deception_score = min(98.5, round(80.0 + (fear_val - 50.0) * 0.4, 1))
             label = "Likely Deceptive"
-            cues.append(CueAlert(
-                time=timestamp_str,
-                text="Brow Lowerer & Furrow (AU4)",
-                severity="red",
-                desc="Acute cognitive retrieval tension or suppressed distress"
-            ))
-            cues.append(CueAlert(
-                time=timestamp_str,
-                text="Eyebrow Raise (AU1+2)",
-                severity="amber",
-                desc="Ocular divergence and apprehension marker"
-            ))
-            cues.append(CueAlert(
-                time=timestamp_str,
-                text="Upper Eyelid Elevation & Widening (AU5)",
-                severity="red",
-                desc="Acute ocular shock and panic disclosure"
-            ))
+            if is_panic_scream:
+                cues.append(CueAlert(
+                    time=timestamp_str,
+                    text="Oral Distress & Scream Gasp (AU25/27)",
+                    severity="red",
+                    desc="Extreme oral dilation and defensive respiratory vocalization"
+                ))
+                cues.append(CueAlert(
+                    time=timestamp_str,
+                    text="Defensive Ocular Clamping & Grimace (AU7/43)",
+                    severity="red",
+                    desc="Blepharospasmic periorbital constriction under acute stress"
+                ))
+            else:
+                cues.append(CueAlert(
+                    time=timestamp_str,
+                    text="Brow Lowerer & Furrow (AU4)",
+                    severity="red",
+                    desc="Acute cognitive retrieval tension or suppressed distress"
+                ))
+                cues.append(CueAlert(
+                    time=timestamp_str,
+                    text="Eyebrow Raise (AU1+2)",
+                    severity="amber",
+                    desc="Ocular divergence and apprehension marker"
+                ))
+                cues.append(CueAlert(
+                    time=timestamp_str,
+                    text="Upper Eyelid Elevation & Widening (AU5)",
+                    severity="red",
+                    desc="Acute ocular shock and panic disclosure"
+                ))
             cues.append(CueAlert(
                 time=timestamp_str,
                 text="Acute Fear / Distress Surge",
