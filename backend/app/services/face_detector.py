@@ -23,12 +23,12 @@ class FaceDetector:
         )
         self.clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
 
-    def process_frame(self, image_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
+    def process_frame(self, image_bgr: np.ndarray, is_static: bool = False) -> Optional[Dict[str, Any]]:
         """
         Process a BGR image frame and return landmark points, bounding box, and pose.
         Multi-tier detection:
-        1. Fast streaming tracker
-        2. Static image detector fallback
+        1. Fast streaming tracker (or static detector if is_static=True)
+        2. Static detector fallback if tracking dropped
         3. CLAHE dynamic range compensation for backlit/shadowed webcam video
         """
         if image_bgr is None or image_bgr.size == 0:
@@ -38,12 +38,15 @@ class FaceDetector:
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         image_rgb.flags.writeable = False
 
-        # Pass 1: Stream tracker
-        results = self.face_mesh.process(image_rgb)
-
-        # Pass 2: Static detector fallback if tracking dropped
-        if not results or not results.multi_face_landmarks:
+        if is_static:
             results = self.face_mesh_static.process(image_rgb)
+        else:
+            # Pass 1: Stream tracker
+            results = self.face_mesh.process(image_rgb)
+
+            # Pass 2: Static detector fallback if tracking dropped
+            if not results or not results.multi_face_landmarks:
+                results = self.face_mesh_static.process(image_rgb)
 
         # Pass 3: Adaptive CLAHE contrast enhancement for backlit or shadowed webcam conditions
         if not results or not results.multi_face_landmarks:

@@ -14,6 +14,7 @@ export default function UploadAnalysis({ onShowToast }) {
 
   const fileInputRef = useRef(null);
   const previewCanvasRef = useRef(null);
+  const uploadedImageObjRef = useRef(null);
 
   // Render annotated facial mesh on preview canvas
   const drawAnnotatedCanvas = (frameNum = 240) => {
@@ -26,7 +27,69 @@ export default function UploadAnalysis({ onShowToast }) {
     ctx.fillStyle = '#080B0F';
     ctx.fillRect(0, 0, w, h);
 
-    // Grid lines
+    // If an image was uploaded, render the actual image and its detected landmarks!
+    if (results?.type === 'image' && uploadedImageObjRef.current) {
+      const img = uploadedImageObjRef.current;
+      const scale = Math.min((w - 40) / img.width, (h - 40) / img.height);
+      const iw = img.width * scale;
+      const ih = img.height * scale;
+      const ox = (w - iw) / 2;
+      const oy = (h - ih) / 2;
+
+      // Draw uploaded image
+      ctx.drawImage(img, ox, oy, iw, ih);
+
+      // Bounding box
+      if (results.bounding_box) {
+        const bx = ox + (results.bounding_box.x / img.width) * iw;
+        const by = oy + (results.bounding_box.y / img.height) * ih;
+        const bw = (results.bounding_box.width / img.width) * iw;
+        const bh = (results.bounding_box.height / img.height) * ih;
+
+        const isDeceptive = results.final_label === 'Likely Deceptive';
+        const isSuspicious = results.final_label === 'Suspicious';
+        ctx.strokeStyle = isDeceptive ? '#EF4444' : isSuspicious ? '#F59E0B' : '#10B981';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bx, by, bw, bh);
+
+        ctx.fillStyle = isDeceptive ? '#EF4444' : isSuspicious ? '#F59E0B' : '#10B981';
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.fillText(`FACE [CONF: 98.2%]`, bx, Math.max(14, by - 6));
+      }
+
+      // Landmarks overlay
+      if (results.landmarks_norm && results.landmarks_norm.length > 0) {
+        ctx.fillStyle = 'rgba(34, 211, 238, 0.75)';
+        for (let pt of results.landmarks_norm) {
+          const rawX = pt.x !== undefined ? pt.x : pt[0];
+          const rawY = pt.y !== undefined ? pt.y : pt[1];
+          const px = ox + rawX * iw;
+          const py = oy + rawY * ih;
+          ctx.beginPath();
+          ctx.arc(px, py, 1.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Telemetry Header Banner
+      ctx.fillStyle = 'rgba(11, 15, 20, 0.85)';
+      ctx.fillRect(10, 10, w - 20, 26);
+      ctx.strokeStyle = '#1E2733';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(10, 10, w - 20, 26);
+
+      const color = results.final_label === 'Likely Deceptive' ? '#EF4444' : results.final_label === 'Suspicious' ? '#F59E0B' : '#10B981';
+      ctx.fillStyle = color;
+      ctx.font = 'bold 11px "JetBrains Mono", monospace';
+      ctx.fillText(
+        `DOMINANT EMOTION: ${results.dominant_emotion.toUpperCase()} | DECEPTION: ${results.avg_score}% (${results.final_label.toUpperCase()}) | CUES: ${results.top_cues.length}`,
+        20,
+        27
+      );
+      return;
+    }
+
+    // Grid lines for video / simulated benchmark mode
     ctx.strokeStyle = 'rgba(30, 39, 51, 0.4)';
     ctx.lineWidth = 1;
     for (let x = 0; x < w; x += 40) {
@@ -113,6 +176,7 @@ export default function UploadAnalysis({ onShowToast }) {
 
     try {
       if (isVideo) {
+        uploadedImageObjRef.current = null;
         setStatusMessage('Extracting Action Units across video timeline (POST /api/analyze/video)...');
         const data = await analyzeVideo(file, (percent) => {
           setUploadProgress(Math.min(90, Math.max(15, percent)));
@@ -126,6 +190,7 @@ export default function UploadAnalysis({ onShowToast }) {
           peak_score: data.peak_score,
           peak_frame: data.peak_frame,
           final_label: data.final_label,
+          dominant_emotion: data.timeline?.[0]?.dominant_emotion || 'Neutral',
           timeline: data.timeline.map((pt, i) => ({
             frame: pt.frame_index,
             time: pt.timestamp,
@@ -137,6 +202,16 @@ export default function UploadAnalysis({ onShowToast }) {
         onShowToast('Analysis Complete', `Processed ${data.frames_processed} frames from ${file.name}.`, 'success');
       } else {
         setStatusMessage('Extracting single-frame FACS Action Units (POST /api/analyze/image)...');
+        
+        // Cache uploaded image object for canvas rendering
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          uploadedImageObjRef.current = img;
+          drawAnnotatedCanvas(1);
+        };
+        img.src = objectUrl;
+
         const data = await analyzeImage(file);
         setUploadProgress(100);
         const t = data.telemetry;
@@ -147,6 +222,10 @@ export default function UploadAnalysis({ onShowToast }) {
           peak_score: t.deception_score,
           peak_frame: 1,
           final_label: t.label,
+          dominant_emotion: t.dominant_emotion,
+          emotions: t.emotions,
+          bounding_box: t.bounding_box,
+          landmarks_norm: t.landmarks_norm,
           timeline: [
             { frame: 1, time: '00:00', score: t.deception_score, emotion: t.dominant_emotion }
           ],

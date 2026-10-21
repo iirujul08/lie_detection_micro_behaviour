@@ -40,6 +40,7 @@ class FrameTelemetry(BaseModel):
     emotions: Dict[str, float] = Field(default_factory=dict)
     cues: List[CueAlert] = Field(default_factory=list)
     model_trained: bool = False
+    landmarks_norm: Optional[List[Dict[str, float]]] = None
 
 class ImageAnalysisResponse(BaseModel):
     success: bool

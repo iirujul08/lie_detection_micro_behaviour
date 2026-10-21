@@ -37,7 +37,7 @@ async def analyze_image(file: UploadFile = File(...)):
     if image_bgr is None:
         raise HTTPException(status_code=400, detail="Corrupt or invalid image data.")
 
-    det_result = face_detector.process_frame(image_bgr)
+    det_result = face_detector.process_frame(image_bgr, is_static=True)
 
     if not det_result:
         # Graceful no-face-detected response
@@ -89,7 +89,8 @@ async def analyze_image(file: UploadFile = File(...)):
             dominant_emotion=scoring["dominant_emotion"],
             emotions=emotions,
             cues=scoring["cues"],
-            model_trained=deception_scorer.model_trained
+            model_trained=deception_scorer.model_trained,
+            landmarks_norm=det_result.get("landmarks_norm")
         )
     )
 
